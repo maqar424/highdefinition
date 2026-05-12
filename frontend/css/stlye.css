@@ -1,7 +1,7 @@
 /*fonts*/
 @font-face {
     font-family: 'Bayshore';
-    src: url('../fonts/bayshore-regular.otf') format('opentype');
+    src: url('/fonts/bayshore-regular.otf') format('opentype');
     font-weight: normal;
     font-style: normal;
 }
