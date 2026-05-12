@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Miami 2026 | high definition</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌴</text></svg>">
+    
+    <link rel="stylesheet" href="css/style.css">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.min.js"></script>
+    <script src="https://unpkg.com/globe.gl"></script>
+</head>
+<body>
+
+    <header>
+        <h1>Miami 2026</h1>
+        <div class="description">
+            Ein digitales Bilderbuch mit den schönsten Bildern von meinem Formel 1 Job in Miami 2026.
+        </div>
+    </header>
+
+    <main class="gallery-grid" id="gallery">
+        <div class="image-container" id="globe-wrapper-01">
+            <div class="globe-container">
+                <div id="flightGlobe01" class="flight-div"></div>
+            </div>
+            <div class="info-row">
+                <div class="metadata">FRA — MIA</div>
+                <div class="download-btn" style="cursor:default; background: #333; color: white;">3D Log</div>
+            </div>
+        </div>
+
+        <div class="image-container" id="globe-wrapper-02">
+            <div class="globe-container">
+                <div id="flightGlobe02" class="flight-div"></div>
+            </div>
+            <div class="info-row">
+                <div class="metadata">MIA — FRA</div>
+                <div class="download-btn" style="cursor:default; background: #333; color: white;">3D Log</div>
+            </div>
+        </div>
+    </main>
+
+    <section class="newsletter-section">
+        <p class="description" style="text-align: center; margin: 0 auto;">
+            Melde dich an, um bei neuen Galerien benachrichtigt zu werden.
+        </p>
+        <form class="newsletter-form" onsubmit="alert('E-Mail gespeichert!'); return false;">
+            <input type="email" class="newsletter-input" placeholder="E-MAIL ADRESSE" required>
+            <button type="submit" class="newsletter-submit">Abonnieren</button>
+        </form>
+    </section>
+
+    <div id="lightbox" class="lightbox">
+        <img id="lightbox-img" src="" alt="Vollbild">
+    </div>
+
+    <script src="js/main.js"></script>
+    <script src="js/gallery.js"></script>
+</body>
+</html>
