@@ -67,25 +67,17 @@ h1 {
 
 /* 2. GALLERIE LAYOUT */
 .gallery-grid {
-    width: 85%;
-    max-width: 1400px;
     display: flex;
     flex-direction: column;
-    align-items: center; /* Zentriert den Inhalt horizontal */
-    justify-content: center;
-    gap: 100px; 
-    padding-bottom: 100px;
-    min-height: 50vh; /* Gibt dem Grid Raum zum Zentrieren */
+    align-items: center;
+    gap: 80px; 
+    width: 100%;
+    margin-top: 50px;
 }
 
-.gallery-link {
-    text-decoration: none;
-    color: inherit;
-    display: flex;
-    flex-direction: column;
-    align-items: center; /* Zentriert Bild und Text im Link */
-    width: 100%;
-    max-width: 600px; /* Hier stellst du ein, wie groß das Thumbnail maximal sein soll */
+.gallery-link:hover .profile-thumbnail {
+    filter: blur(0px) brightness(1);
+    transform: scale(1.03); /* Minimaler Zoom für mehr Dynamik */
 }
 
 /* 3. BILD-CONTAINER & METADATEN */
@@ -276,14 +268,14 @@ img {
 
 /* Das Bild innerhalb des Items */
 .profile-thumbnail {
-    width: 100% !important; /* Nutzt die 600px des gallery-link aus */
-    height: auto !important; 
-    max-height: none !important; /* Hebt die 90vh Begrenzung auf */
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    display: block;
     object-fit: cover;
-    border-radius: 4px; /* Optional für weichere Kanten */
-    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-    cursor: pointer; /* Da es ein Link ist */
-    filter: none; /* Entfernt den Blur, falls du ihn auf der Profilseite nicht willst */
+    /* Weichzeichner im Normalzustand */
+    filter: blur(15px) brightness(0.8); 
+    transition: filter 0.6s ease, transform 0.6s ease;
 }
 
 .profile-gallery-item:hover .profile-thumbnail {
@@ -291,13 +283,21 @@ img {
 }
 
 /* Titel-Styling */
+/* Der Titel - Zentriert über dem Bild */
 .gallery-title {
-    position: relative;
+    position: absolute; /* Löst den Text aus dem Fluss */
     z-index: 2;
-    font-family: 'Bayshore', sans-serif;
-    color: white;
-    font-size: 5rem; /* Groß und zentral */
-    text-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    pointer-events: none;
     margin: 0;
+    color: #ffffff;
+    font-family: 'Bayshore', sans-serif;
+    font-size: 5rem;
+    text-align: center;
+    text-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    pointer-events: none; /* Maus-Events gehen durch den Text aufs Bild */
+    transition: opacity 0.4s ease;
+}
+
+/* Optional: Titel beim Hover leicht ausblenden oder dezent lassen */
+.gallery-link:hover .gallery-title {
+    opacity: 0.9;
 }
