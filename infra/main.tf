@@ -66,6 +66,30 @@ resource "aws_cloudfront_distribution" "s3_distribution" {
     origin_id                = "S3Origin"
   }
 
+  origin {
+    domain_name              = aws_s3_bucket.media_bucket.bucket_regional_domain_name
+    origin_access_control_id = aws_cloudfront_origin_access_control.default.id
+    origin_id                = "MediaOrigin"
+  }
+
+  # NEU -> Spezielles Verhalten für Medien
+  # Alles, was mit /media/ beginnt, wird vom Medien-Bucket geholt
+  ordered_cache_behavior {
+    path_pattern     = "/media/*"
+    allowed_methods  = ["GET", "HEAD"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "MediaOrigin"
+
+    forwarded_values {
+      query_string = false
+      cookies {
+        forward = "none"
+      }
+    }
+
+    viewer_protocol_policy = "redirect-to-https"
+  }
+
   enabled             = true
   is_ipv6_enabled     = true
   default_root_object = "index.html"
@@ -96,6 +120,25 @@ resource "aws_cloudfront_distribution" "s3_distribution" {
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }
+}
+
+resource "aws_s3_bucket_policy" "allow_cloudfront_media_access" {
+  bucket = aws_s3_bucket.media_bucket.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowCloudFrontServicePrincipalReadOnly"
+        Effect    = "Allow"
+        Principal = { Service = "cloudfront.amazonaws.com" }
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.media_bucket.arn}/*"
+        Condition = {
+          StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.s3_distribution.arn }
+        }
+      }
+    ]
+  })
 }
 
 resource "aws_s3_bucket_policy" "allow_cloudfront_access" {

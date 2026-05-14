@@ -77,6 +77,12 @@ h1 {
     padding-bottom: 100px;
 }
 
+.gallery-link {
+    text-decoration: none;
+    color: inherit;
+    display: block; /* Macht den gesamten Bereich klickbar */
+}
+
 /* 3. BILD-CONTAINER & METADATEN */
 .image-container {
     display: flex;
