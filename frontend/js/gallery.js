@@ -1,4 +1,4 @@
-const API_URL = "DEINE_API_URL_HIER_EINSETZEN"; // Die URL aus deinem Terraform Output
+const API_URL = "https://ejjvnnn1lj.execute-api.eu-central-1.amazonaws.com/gallery"; // Die URL aus deinem Terraform Output
 const MEDIA_BASE_URL = "https://high-definition.net/"; // Deine CloudFront Domain
 
 async function initGallery() {
