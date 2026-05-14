@@ -71,16 +71,21 @@ h1 {
     max-width: 1400px;
     display: flex;
     flex-direction: column;
-    align-items: center; /* Zentriert die Items horizontal */
+    align-items: center; /* Zentriert den Inhalt horizontal */
     justify-content: center;
-    gap: 100px; /* Abstand zwischen den verschiedenen Galerien */
+    gap: 100px; 
     padding-bottom: 100px;
+    min-height: 50vh; /* Gibt dem Grid Raum zum Zentrieren */
 }
 
 .gallery-link {
     text-decoration: none;
     color: inherit;
-    display: block; /* Macht den gesamten Bereich klickbar */
+    display: flex;
+    flex-direction: column;
+    align-items: center; /* Zentriert Bild und Text im Link */
+    width: 100%;
+    max-width: 600px; /* Hier stellst du ein, wie groß das Thumbnail maximal sein soll */
 }
 
 /* 3. BILD-CONTAINER & METADATEN */
@@ -271,13 +276,14 @@ img {
 
 /* Das Bild innerhalb des Items */
 .profile-thumbnail {
-    position: absolute;
-    width: 100%;
-    height: 100%;
+    width: 100% !important; /* Nutzt die 600px des gallery-link aus */
+    height: auto !important; 
+    max-height: none !important; /* Hebt die 90vh Begrenzung auf */
     object-fit: cover;
-    filter: blur(20px) brightness(0.7); /* Dein gewünschter Blur-Effekt */
-    transition: filter 0.5s ease;
-    z-index: 1;
+    border-radius: 4px; /* Optional für weichere Kanten */
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    cursor: pointer; /* Da es ein Link ist */
+    filter: none; /* Entfernt den Blur, falls du ihn auf der Profilseite nicht willst */
 }
 
 .profile-gallery-item:hover .profile-thumbnail {

@@ -1,5 +1,5 @@
-const API_URL = "https://ejjvnnn1lj.execute-api.eu-central-1.amazonaws.com/gallery"; // Die URL aus deinem Terraform Output
-const MEDIA_BASE_URL = "https://high-definition.net/"; // Deine CloudFront Domain
+const API_URL = "https://ejjvnnn1lj.execute-api.eu-central-1.amazonaws.com/gallery"; 
+const MEDIA_BASE_URL = "https://high-definition.net/media/"; // Pfad inklusive /media/
 
 async function initGallery() {
     try {
@@ -18,11 +18,17 @@ async function initGallery() {
         const galleryGrid = document.getElementById('gallery');
 
         images.forEach(img => {
+            // Wir entfernen eventuelle führende Slashes von den URLs aus der DB
+            const cleanThumb = img.ThumbnailUrl.replace(/^\//, '');
+            const cleanFull = img.FullSizeUrl.replace(/^\//, '');
+
             const imgHtml = `
-                <div class="image-container" onclick="openLightbox('${MEDIA_BASE_URL}${img.FullSizeUrl}')">
-                    <img src="${MEDIA_BASE_URL}${img.ThumbnailUrl}" alt="${img.Caption}">
+                <div class="image-container">
+                    <img src="${MEDIA_BASE_URL}${cleanThumb}" 
+                         onclick="openLightbox('${MEDIA_BASE_URL}${cleanFull}')" 
+                         alt="${img.Caption}">
                     <div class="info-row">
-                        <div class="metadata">${img.Caption}</div>
+                        <div class="metadata">${img.Caption || 'Miami 2026'}</div>
                     </div>
                 </div>`;
             galleryGrid.innerHTML += imgHtml;
@@ -31,10 +37,11 @@ async function initGallery() {
         // 3. Flug-Daten (Globen) initialisieren
         if (meta && meta.CsvFiles) {
             meta.CsvFiles.forEach((csvPath, index) => {
-                const cleanPath = csvPath.replace(/"/g, ''); // Entfernt die extra Anführungszeichen
+                const cleanPath = csvPath.replace(/"/g, '').replace(/^\//, ''); 
                 const globeId = `flightGlobe0${index + 1}`;
                 if (document.getElementById(globeId)) {
-                    renderGlobe(globeId, `${MEDIA_BASE_URL}koljagrosse/2026Miami/flights/${cleanPath}`);
+                    // Pfad: /media/ + restlicher Pfad aus DB
+                    renderGlobe(globeId, `${MEDIA_BASE_URL}${cleanPath}`);
                 }
             });
         }
@@ -45,14 +52,50 @@ async function initGallery() {
 }
 
 function renderGlobe(containerId, csvUrl) {
-    // Hier nutzt du deine existierende Globe.gl Logik
-    const world = Globe()
-      (document.getElementById(containerId))
-      .globeImageUrl('//unpkg.com/three-globe/example/img/earth-night.jpg')
-      .pointsData([]) // Hier deine CSV-Parsing Logik einbauen
+    const container = document.getElementById(containerId);
     
-    // Tipp: Nutze fetch(csvUrl) um die Daten für den Globus zu laden
+    // Globus initialisieren
+    const world = Globe()(container)
+        .globeImageUrl('//unpkg.com/three-globe/example/img/earth-night.jpg')
+        .arcColor(() => '#00eeee')
+        .arcDashLength(0.4)
+        .arcDashGap(0.2)
+        .arcDashAnimateTime(2000)
+        .backgroundColor('rgba(0,0,0,0)'); // Transparentes Schwarz
+
+    // Daten laden und Pfade zeichnen
+    fetch(csvUrl)
+        .then(res => res.text())
+        .then(csvText => {
+            // Einfaches Parsing für Start/Ende (FRA - MIA Logik)
+            // Hier müsstest du ggf. deine Koordinaten-Logik verfeinern
+            const arcsData = [{
+                startLat: 50.0379, startLng: 8.5622, // FRA
+                endLat: 25.7959, endLng: -80.2870,   // MIA
+                color: ['#ffffff', '#00eeee']
+            }];
+            
+            world.arcsData(arcsData);
+            
+            // Auto-Resize
+            const resizeObserver = new ResizeObserver(() => {
+                world.width(container.offsetWidth);
+                world.height(container.offsetHeight);
+            });
+            resizeObserver.observe(container);
+        });
 }
 
-// Start
+// Lightbox Funktionen
+function openLightbox(url) {
+    const lb = document.getElementById('lightbox');
+    const lbImg = document.getElementById('lightbox-img');
+    lbImg.src = url;
+    lb.classList.add('active');
+}
+
+document.getElementById('lightbox').onclick = function() {
+    this.classList.remove('active');
+};
+
 initGallery();
