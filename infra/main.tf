@@ -201,7 +201,24 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 
 resource "aws_iam_role_policy_attachment" "lambda_dynamo_read" {
   role       = aws_iam_role.iam_for_lambda.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"
+  policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+}
+
+resource "aws_iam_role_policy" "lambda_s3_media_read" {
+  name = "lambda_s3_media_read"
+  role = aws_iam_role.iam_for_lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject", "s3:ListBucket"]
+      Resource = [
+        aws_s3_bucket.media_bucket.arn,
+        "${aws_s3_bucket.media_bucket.arn}/*"
+      ]
+    }]
+  })
 }
 
 # Lambda 1: Galerie Daten abrufen
@@ -214,10 +231,17 @@ data "archive_file" "lambda_zip" {
 resource "aws_lambda_function" "api_lambda" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "get_gallery_data"
-  handler          = "get_gallery_data.handler" 
+  handler          = "get_gallery_data.handler"
   role             = aws_iam_role.iam_for_lambda.arn
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
   runtime          = "python3.9"
+  timeout          = 30
+
+  environment {
+    variables = {
+      MEDIA_BUCKET = aws_s3_bucket.media_bucket.bucket
+    }
+  }
 }
 
 # Lambda 2: Bildverarbeitung
