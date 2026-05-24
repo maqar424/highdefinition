@@ -175,53 +175,7 @@ img {
 
 .flight-div { width: 100% !important; height: 100% !important; }
 
-/* 6. NEWSLETTER SEKTION */
-.newsletter-section {
-    width: 85%;
-    max-width: 600px;
-    margin: 100px 0;
-    padding: 80px 20px;
-    text-align: center;
-    border-top: 1px solid rgba(0,0,0,0.05);
-}
-
-.newsletter-form {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 20px;
-    margin-top: 30px;
-}
-
-.newsletter-input {
-    width: 100%;
-    max-width: 400px;
-    padding: 15px;
-    background: rgba(255, 255, 255, 0.5);
-    border: 2px solid var(--accent);
-    border-radius: 0;
-    font-size: 0.7rem;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    outline: none;
-}
-
-.newsletter-submit {
-    width: 100%;
-    max-width: 400px;
-    padding: 15px;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: 0;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    cursor: pointer;
-    transition: opacity 0.3s;
-}
-
-/* 7. LIGHTBOX */
+/* 6. LIGHTBOX */
 
 .lightbox {
     position: fixed;
