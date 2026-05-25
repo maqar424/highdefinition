@@ -70,14 +70,15 @@ h1 {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 80px; 
-    width: 100%;
-    margin-top: 50px;
+    gap: 80px;
+    width: 85%;
+    max-width: 1400px;
+    margin: 50px auto 0;
 }
 
-.gallery-link:hover .profile-thumbnail {
+.gallery-tile:hover .profile-thumbnail {
     filter: blur(0px) brightness(1);
-    transform: scale(1.03); /* Minimaler Zoom für mehr Dynamik */
+    transform: scale(1.03);
 }
 
 /* 3. BILD-CONTAINER & METADATEN */
@@ -142,6 +143,14 @@ img {
     text-transform: uppercase;
 }
 
+.image-description {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.8;
+    letter-spacing: 0.5px;
+    margin-top: 8px;
+}
+
 
 
 /* 4. BUTTONS & INTERAKTION */
@@ -162,10 +171,116 @@ img {
     border-color: var(--accent);
 }
 
-/* 5. GLOBE CONTAINER */
+/* 5. ZURÜCK-NAVIGATION */
+.back-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    padding: 16px 7.5%;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.back-link {
+    font-size: 0.62rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-meta);
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.back-link:hover {
+    color: var(--text-main);
+}
+
+/* 6. FLUG-KARTE (Globe + Info-Panel) */
+.flight-card {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    aspect-ratio: 16 / 7;
+    background: #000;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 40px 80px rgba(0, 0, 0, 0.1);
+}
+
+/* Linkes Info-Panel */
+.flight-info {
+    width: 240px;
+    flex-shrink: 0;
+    background: #0d0d0d;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 32px 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    overflow: hidden;
+}
+
+.fi-callsign {
+    font-size: 0.78rem;
+    color: rgba(255, 255, 255, 0.88);
+    letter-spacing: 0.3px;
+}
+
+.fi-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.07);
+    flex-shrink: 0;
+}
+
+.fi-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.fi-label {
+    font-size: 0.52rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.fi-value {
+    font-size: 0.78rem;
+    color: rgba(255, 255, 255, 0.88);
+    letter-spacing: 0.3px;
+    line-height: 1.4;
+}
+
+.fi-sub {
+    font-size: 0.68rem;
+    color: rgba(255, 255, 255, 0.38);
+}
+
+.fi-loading {
+    font-size: 0.6rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.25);
+}
+
+/* Globe-Container innerhalb der Flugkarte */
+.flight-card .globe-container {
+    flex: 1;
+    aspect-ratio: unset;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+/* Standalone Globe-Container (Fallback, falls außerhalb .flight-card) */
 .globe-container {
     width: 100%;
-    aspect-ratio: 16 / 7; 
+    aspect-ratio: 16 / 7;
     background-color: #000;
     border-radius: 4px;
     overflow: hidden;
@@ -201,57 +316,72 @@ img {
     object-fit: contain; /* Verhindert Verzerrungen */
 }
 
-/* Container für das Galerie-Vorschaubild */
-.profile-gallery-item {
+/* --- Galerie-Kachel-Grid (Profilseite) --- */
+
+.gallery-tile-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    width: 85%;
+    max-width: 1400px;
+    margin: 50px auto 100px;
+}
+
+/* Eine einzelne Kachel */
+.gallery-tile {
     position: relative;
-    width: 100%;
-    max-width: 900px; /* Begrenzt die Breite des Thumbnails */
-    aspect-ratio: 16 / 9; /* Sorgt für ein konsistentes Format */
-    height: auto; /* Höhe wird durch Aspect-Ratio berechnet */
+    display: block;
+    aspect-ratio: 16 / 9;
     overflow: hidden;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    box-shadow: 0 30px 60px rgba(0,0,0,0.1);
-    transition: transform 0.4s ease;
+    text-decoration: none;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+    transition: box-shadow 0.4s ease;
 }
 
-.profile-gallery-item:hover {
-    transform: scale(1.02); /* Leichter Zoom-Effekt beim Hovern */
+.gallery-tile:hover {
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.22);
 }
 
-/* Das Bild innerhalb des Items */
+/* Thumbnail innerhalb der Kachel */
 .profile-thumbnail {
-    width: 100% !important;
-    height: auto !important;
-    max-height: none !important;
+    width: 100%;
+    height: 100%;
     display: block;
     object-fit: cover;
-    /* Weichzeichner im Normalzustand */
-    filter: blur(15px) brightness(0.8); 
+    filter: blur(15px) brightness(0.7);
     transition: filter 0.6s ease, transform 0.6s ease;
 }
 
-.profile-gallery-item:hover .profile-thumbnail {
+.gallery-tile:hover .profile-thumbnail {
     filter: blur(0px) brightness(1);
+    transform: scale(1.03);
 }
 
-/* Titel-Styling */
-/* Der Titel - Zentriert über dem Bild */
+/* Platzhalter-Kachel ohne Bild */
+.gallery-tile--placeholder {
+    background: linear-gradient(135deg, #1a1a1a 0%, #2e2e2e 100%);
+    cursor: default;
+}
+
+/* Galerie-Titel – zentriert über dem Bild */
 .gallery-title {
-    position: absolute; /* Löst den Text aus dem Fluss */
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     z-index: 2;
     margin: 0;
+    width: 90%;
     color: #ffffff;
     font-family: 'Bayshore', sans-serif;
-    font-size: 5rem;
+    font-size: 4rem;
     text-align: center;
-    text-shadow: 0 10px 30px rgba(0,0,0,0.4);
-    pointer-events: none; /* Maus-Events gehen durch den Text aufs Bild */
+    text-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    white-space: nowrap;
     transition: opacity 0.4s ease;
 }
 
-/* Optional: Titel beim Hover leicht ausblenden oder dezent lassen */
-.gallery-link:hover .gallery-title {
-    opacity: 0.9;
+.gallery-tile:hover .gallery-title {
+    opacity: 0.85;
 }

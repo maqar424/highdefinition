@@ -5,40 +5,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Miami 2026 | high definition</title>
     <link rel="icon" type="image/svg+xml" href="/css/palm.svg">
-    
     <link rel="stylesheet" href="/css/style.css">
-
     <script src="https://unpkg.com/globe.gl"></script>
 </head>
 <body>
 
-    <header>
-        <h1>Miami 2026</h1>
-        <div class="description">
-            Ein digitales Bilderbuch mit den schönsten Bildern von meinem Formel 1 Job in Miami 2026.
-        </div>
-    </header>
+    <nav class="back-nav">
+        <a href="/koljagrosse/index.html" class="back-link">← Alle Galerien</a>
+    </nav>
 
     <main class="gallery-grid" id="gallery">
+
         <div class="image-container" id="globe-wrapper-01">
-            <div class="globe-container">
-                <div id="flightGlobe01" class="flight-div"></div>
+            <div class="flight-card">
+                <div class="flight-info" id="flightInfo01">
+                    <div class="fi-loading">Lade Flugdaten …</div>
+                </div>
+                <div class="globe-container">
+                    <div id="flightGlobe01" class="flight-div"></div>
+                </div>
             </div>
             <div class="info-row">
                 <div class="metadata">FRA — MIA</div>
-                <div class="download-btn" style="cursor:default; background: #333; color: white;">3D Log</div>
+                <div class="download-btn" style="cursor:default; background:#333; color:white;">3D Log</div>
             </div>
         </div>
 
         <div class="image-container" id="globe-wrapper-02">
-            <div class="globe-container">
-                <div id="flightGlobe02" class="flight-div"></div>
+            <div class="flight-card">
+                <div class="flight-info" id="flightInfo02">
+                    <div class="fi-loading">Lade Flugdaten …</div>
+                </div>
+                <div class="globe-container">
+                    <div id="flightGlobe02" class="flight-div"></div>
+                </div>
             </div>
             <div class="info-row">
                 <div class="metadata">MIA — FRA</div>
-                <div class="download-btn" style="cursor:default; background: #333; color: white;">3D Log</div>
+                <div class="download-btn" style="cursor:default; background:#333; color:white;">3D Log</div>
             </div>
         </div>
+
     </main>
 
     <div id="lightbox" class="lightbox">

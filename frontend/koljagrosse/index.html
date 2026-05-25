@@ -2,25 +2,67 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Profiles | high definition</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kolja Grosse | high definition</title>
     <link rel="icon" type="image/svg+xml" href="/css/camera.svg">
     <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
+
     <header>
         <h1>kolja's galleries</h1>
-        <div class="description">Entdecke kuratierte Gallerien.</div>
+        <div class="description">Kuratierte Momente aus aller Welt.</div>
     </header>
 
-    <main class="gallery-grid">
-    <!-- Der Link umschließt jetzt das Bild UND den Text -->
-    <a href="/koljagrosse/2026Miami/index.html" class="gallery-link">
-        <img src="/media/koljagrosse/2026Miami/thumbnails/DSCF2155.webp" 
-             class="profile-thumbnail" 
-             alt="Miami 2026">
-        
-        <h2 class="gallery-title">Miami 2026</h2>
-    </a>
-</main>
+    <main class="gallery-tile-grid" id="tile-grid">
+        <!-- Kacheln werden per JS aus DynamoDB geladen -->
+    </main>
+
+    <script>
+        const API_URL        = "https://ejjvnnn1lj.execute-api.eu-central-1.amazonaws.com/gallery";
+        const MEDIA_BASE_URL = "https://high-definition.net/media/";
+        const USER_ID        = "koljagrosse";
+
+        async function loadGalleries() {
+            const grid = document.getElementById('tile-grid');
+            try {
+                const res  = await fetch(`${API_URL}?userId=${USER_ID}&galleriesOnly=true`);
+                if (!res.ok) throw new Error(`API ${res.status}`);
+                const galleries = await res.json();
+
+                if (galleries.length === 0) {
+                    grid.innerHTML = '<p style="color:#999;font-size:0.75rem;letter-spacing:1px;text-transform:uppercase;">Noch keine Galerien vorhanden.</p>';
+                    return;
+                }
+
+                grid.innerHTML = galleries.map(g => {
+                    const slug  = g.Slug || g.GalleryId.replace('GALLERY#', '');
+                    const title = g.Title || slug;
+                    const thumb = g.ThumbnailUrl ? `${MEDIA_BASE_URL}${g.ThumbnailUrl}` : '';
+                    const href  = `/${USER_ID}/${slug}/index.html`;
+
+                    if (thumb) {
+                        return `
+                            <a href="${href}" class="gallery-tile">
+                                <img src="${thumb}" class="profile-thumbnail" alt="${title}">
+                                <h2 class="gallery-title">${title}</h2>
+                            </a>`;
+                    } else {
+                        return `
+                            <a href="${href}" class="gallery-tile gallery-tile--placeholder">
+                                <h2 class="gallery-title">${title}</h2>
+                            </a>`;
+                    }
+                }).join('');
+
+            } catch (err) {
+                console.error('Fehler beim Laden der Galerien:', err);
+                grid.innerHTML = '<p style="color:#999;font-size:0.75rem;letter-spacing:1px;text-transform:uppercase;">Fehler beim Laden.</p>';
+            }
+        }
+
+        loadGalleries();
+    </script>
+
 </body>
 </html>

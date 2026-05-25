@@ -1,5 +1,122 @@
-const API_URL = "https://ejjvnnn1lj.execute-api.eu-central-1.amazonaws.com/gallery";
+const API_URL        = "https://ejjvnnn1lj.execute-api.eu-central-1.amazonaws.com/gallery";
 const MEDIA_BASE_URL = "https://high-definition.net/media/";
+
+// ---------------------------------------------------------------------------
+// Einstiegspunkt – dynamischer Modus wenn HD_USER / HD_GALLERY definiert sind
+// ---------------------------------------------------------------------------
+
+if (typeof HD_USER !== 'undefined' && typeof HD_GALLERY !== 'undefined') {
+    initGalleryDynamic(HD_USER, HD_GALLERY);
+} else {
+    initGallery();  // Legacy-Modus (2026Miami mit hardcodierten Globe-Wrappern)
+}
+
+// ---------------------------------------------------------------------------
+// Dynamischer Modus (neue Galerien via Admin-Tool erstellt)
+// ---------------------------------------------------------------------------
+
+async function initGalleryDynamic(userId, galleryId) {
+    try {
+        const url      = `${API_URL}?userId=${userId}&galleryId=${galleryId}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`API Fehler: ${response.status}`);
+        const data = await response.json();
+
+        const meta    = data.find(i => i.GalleryId?.startsWith('GALLERY#'));
+        const elements = data
+            .filter(i => i.GalleryId?.startsWith('IMAGE#') || i.GalleryId?.startsWith('FLIGHT#'))
+            .map((item, idx) => ({ ...item, _idx: idx }))
+            .sort((a, b) => {
+                const sa = a.SortOrder ?? 50;
+                const sb = b.SortOrder ?? 50;
+                return sa !== sb ? sa - sb : a._idx - b._idx;
+            });
+
+        // Header dynamisch einfügen
+        if (meta && (meta.Title || meta.Description)) {
+            const header = document.createElement('header');
+            if (meta.Title) {
+                const h1 = document.createElement('h1');
+                h1.innerText = meta.Title;
+                header.appendChild(h1);
+            }
+            if (meta.Description) {
+                const desc = document.createElement('div');
+                desc.className = 'description';
+                desc.innerText = meta.Description;
+                header.appendChild(desc);
+            }
+            document.querySelector('main.gallery-grid').before(header);
+        }
+
+        // Elemente rendern
+        const main = document.getElementById('gallery');
+        let globeIdx = 1;
+
+        for (const item of elements) {
+            if (item.GalleryId.startsWith('IMAGE#')) {
+                main.appendChild(_buildImageEl(item));
+            } else if (item.GalleryId.startsWith('FLIGHT#')) {
+                const gId = `flightGlobe${globeIdx}`;
+                const iId = `flightInfo${globeIdx}`;
+                main.appendChild(_buildFlightEl(item, gId, iId));
+                const csvUrl = item.CsvUrl ? `${MEDIA_BASE_URL}${item.CsvUrl}` : null;
+                renderGlobe(gId, iId, csvUrl);
+                globeIdx++;
+            }
+        }
+
+        alignCaptionsToImages();
+        window.addEventListener('resize', alignCaptionsToImages);
+
+    } catch (err) {
+        console.error("Fehler beim Laden der Galerie:", err);
+    }
+}
+
+function _buildImageEl(img) {
+    const div      = document.createElement('div');
+    div.className  = 'image-container';
+    const thumb    = (img.ThumbnailUrl || '').replace(/^\//, '');
+    const full     = (img.FullSizeUrl  || '').replace(/^\//, '');
+    const aperture = img.Aperture     || '—';
+    const shutter  = img.ShutterSpeed || '—';
+    const iso      = img.ISO          ? `ISO ${img.ISO}` : '—';
+    const caption  = img.Caption      || '';
+    div.innerHTML = `
+        <img src="${MEDIA_BASE_URL}${thumb}"
+             onclick="openLightbox('${MEDIA_BASE_URL}${full}')"
+             alt="${caption}">
+        <div class="info-row">
+            <div class="metadata">${aperture} · ${shutter} · ${iso}</div>
+        </div>
+        ${caption ? `<div class="image-description">${caption}</div>` : ''}`;
+    return div;
+}
+
+function _buildFlightEl(flight, globeId, infoId) {
+    const div     = document.createElement('div');
+    div.className = 'image-container';
+    const label   = flight.Label || '';
+    div.innerHTML = `
+        <div class="flight-card">
+            <div class="flight-info" id="${infoId}">
+                <div class="fi-loading">Lade Flugdaten …</div>
+            </div>
+            <div class="globe-container">
+                <div id="${globeId}" class="flight-div"></div>
+            </div>
+        </div>
+        <div class="info-row">
+            <div class="metadata">${label}</div>
+            <div class="download-btn" style="cursor:default; background:#333; color:white;">3D Log</div>
+        </div>`;
+    return div;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy-Modus (2026Miami – hardcodierte Globe-Wrapper in HTML)
+// ---------------------------------------------------------------------------
 
 async function initGallery() {
     try {
@@ -7,132 +124,228 @@ async function initGallery() {
         if (!response.ok) throw new Error(`API Fehler: ${response.status}`);
         const data = await response.json();
 
-        const meta = data.find(item => item.GalleryId && item.GalleryId.startsWith('GALLERY#'));
+        const meta   = data.find(item => item.GalleryId && item.GalleryId.startsWith('GALLERY#'));
         const images = data.filter(item => item.GalleryId && item.GalleryId.startsWith('IMAGE#'));
 
-        if (meta) {
-            if (meta.Title) document.querySelector('header h1').innerText = meta.Title;
-            if (meta.Description) document.querySelector('.description').innerText = meta.Description;
+        if (meta && (meta.Title || meta.Description)) {
+            const header = document.createElement('header');
+            if (meta.Title) {
+                const h1 = document.createElement('h1');
+                h1.innerText = meta.Title;
+                header.appendChild(h1);
+            }
+            if (meta.Description) {
+                const desc = document.createElement('div');
+                desc.className = 'description';
+                desc.innerText = meta.Description;
+                header.appendChild(desc);
+            }
+            document.querySelector('main.gallery-grid').before(header);
         }
 
         const imagesHtml = images.map(img => {
-            const thumb = (img.ThumbnailUrl || '').replace(/^\//, '');
-            const full  = (img.FullSizeUrl  || '').replace(/^\//, '');
-            const caption = img.Caption || '';
+            const thumb    = (img.ThumbnailUrl || '').replace(/^\//, '');
+            const full     = (img.FullSizeUrl  || '').replace(/^\//, '');
+            const alt      = img.Caption || '';
+            const aperture = img.Aperture     || '—';
+            const shutter  = img.ShutterSpeed || '—';
+            const iso      = img.ISO          ? `ISO ${img.ISO}` : '—';
+            const caption  = img.Caption      || '';
             return `
                 <div class="image-container">
                     <img src="${MEDIA_BASE_URL}${thumb}"
                          onclick="openLightbox('${MEDIA_BASE_URL}${full}')"
-                         alt="${caption}">
+                         alt="${alt}">
                     <div class="info-row">
-                        <div class="metadata">${caption}</div>
+                        <div class="metadata">${aperture} · ${shutter} · ${iso}</div>
                     </div>
+                    ${caption ? `<div class="image-description">${caption}</div>` : ''}
                 </div>`;
         }).join('');
 
-        const globe02Wrapper = document.getElementById('globe-wrapper-02');
-        globe02Wrapper.insertAdjacentHTML('beforebegin', imagesHtml);
+        document.getElementById('globe-wrapper-02').insertAdjacentHTML('beforebegin', imagesHtml);
 
-        if (meta && meta.CsvFiles && meta.CsvFiles[0]) {
-            const path1 = meta.CsvFiles[0].replace(/"/g, '').replace(/^\//, '');
-            renderGlobe('flightGlobe01', `${MEDIA_BASE_URL}${path1}`);
-        } else {
-            renderGlobe('flightGlobe01', null);
-        }
+        alignCaptionsToImages();
+        window.addEventListener('resize', alignCaptionsToImages);
 
-        if (meta && meta.CsvFiles && meta.CsvFiles[1]) {
-            const path2 = meta.CsvFiles[1].replace(/"/g, '').replace(/^\//, '');
-            renderGlobe('flightGlobe02', `${MEDIA_BASE_URL}${path2}`);
-        } else {
-            renderGlobe('flightGlobe02', null);
-        }
+        const csv1 = meta?.CsvFiles?.[0] ? `${MEDIA_BASE_URL}${meta.CsvFiles[0].replace(/^\//, '')}` : null;
+        const csv2 = meta?.CsvFiles?.[1] ? `${MEDIA_BASE_URL}${meta.CsvFiles[1].replace(/^\//, '')}` : null;
+        renderGlobe('flightGlobe01', 'flightInfo01', csv1);
+        renderGlobe('flightGlobe02', 'flightInfo02', csv2);
 
-    } catch (error) {
-        console.error("Fehler beim Laden der Galerie:", error);
+    } catch (err) {
+        console.error("Fehler beim Laden der Galerie:", err);
     }
 }
 
-// Parst eine einzelne CSV-Zeile und berücksichtigt Felder in Anführungszeichen
+// ---------------------------------------------------------------------------
+// Caption-Ausrichtung
+// ---------------------------------------------------------------------------
+
+function alignCaptionsToImages() {
+    document.querySelectorAll('.image-container img').forEach(img => {
+        const apply = () => {
+            const w = img.clientWidth;
+            if (!w) return;
+            img.closest('.image-container')
+               .querySelectorAll('.info-row, .image-description')
+               .forEach(el => el.style.width = w + 'px');
+        };
+        if (img.complete && img.naturalWidth > 0) apply();
+        else img.addEventListener('load', apply, { once: true });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// CSV-Parser
+// ---------------------------------------------------------------------------
+
 function parseCSVLine(line) {
     const result = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-            inQuotes = !inQuotes;
-        } else if (ch === ',' && !inQuotes) {
-            result.push(current.trim());
-            current = '';
-        } else {
-            current += ch;
-        }
+    let cur = '', inQ = false;
+    for (const ch of line) {
+        if (ch === '"')              inQ = !inQ;
+        else if (ch === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+        else                          cur += ch;
     }
-    result.push(current.trim());
+    result.push(cur.trim());
     return result;
 }
 
-// Parst FlightRadar24-CSV und gibt Array von [lat, lng]-Punkten zurück
 function parseFlightCSV(csvText) {
     const lines = csvText.trim().split('\n');
-    if (lines.length < 2) return [];
+    if (lines.length < 2) return { points: [], rows: [] };
 
-    const headers = parseCSVLine(lines[0]).map(h => h.replace(/"/g, '').toLowerCase());
-    const posIdx = headers.indexOf('position');
-    if (posIdx === -1) return [];
+    const hdrs = parseCSVLine(lines[0]).map(h => h.replace(/"/g, '').toLowerCase());
+    const idx  = name => hdrs.indexOf(name);
+    const posI = idx('position'), tsI = idx('timestamp'), utcI = idx('utc');
+    const csI  = idx('callsign'), altI = idx('altitude'), spdI = idx('speed');
 
-    const points = [];
+    const points = [], rows = [];
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
-        const cols = parseCSVLine(line);
-        if (cols.length <= posIdx) continue;
-        const pos = cols[posIdx].replace(/"/g, '').trim();
-        const parts = pos.split(',');
-        if (parts.length < 2) continue;
-        const lat = parseFloat(parts[0]);
-        const lng = parseFloat(parts[1]);
-        if (!isNaN(lat) && !isNaN(lng)) {
-            points.push([lat, lng]);
-        }
+        const c = parseCSVLine(line);
+        const posParts = (c[posI] || '').replace(/"/g, '').split(',');
+        const lat = parseFloat(posParts[0]), lng = parseFloat(posParts[1]);
+        if (isNaN(lat) || isNaN(lng)) continue;
+        points.push([lat, lng]);
+        rows.push({
+            timestamp: parseInt(c[tsI])  || 0,
+            utc:       (c[utcI] || '').replace(/"/g, '').trim(),
+            callsign:  (c[csI]  || '').replace(/"/g, '').trim(),
+            altitude:  parseInt(c[altI]) || 0,
+            speed:     parseInt(c[spdI]) || 0,
+            lat, lng
+        });
     }
-    return points;
+    return { points, rows };
 }
 
-function renderGlobe(containerId, csvUrl) {
-    const container = document.getElementById(containerId);
+// ---------------------------------------------------------------------------
+// Flugstatistik
+// ---------------------------------------------------------------------------
 
+function haversineKm(lat1, lon1, lat2, lon2) {
+    const R    = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a    = Math.sin(dLat / 2) ** 2
+               + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
+               * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+function computeFlightStats(rows) {
+    const first = rows[0], last = rows[rows.length - 1];
+    const durationSec = last.timestamp - first.timestamp;
+    const hours = Math.floor(durationSec / 3600);
+    const mins  = Math.floor((durationSec % 3600) / 60);
+    const maxAlt   = Math.max(...rows.map(r => r.altitude));
+    const maxSpeed = Math.max(...rows.map(r => r.speed));
+    let totalKm = 0;
+    for (let i = 1; i < rows.length; i++)
+        totalKm += haversineKm(rows[i-1].lat, rows[i-1].lng, rows[i].lat, rows[i].lng);
+    const parseDate = utc => {
+        const [y, m, d] = (utc.split('T')[0] || '').split('-');
+        const mo = ['Jan.','Feb.','Mrz.','Apr.','Mai','Jun.','Jul.','Aug.','Sep.','Okt.','Nov.','Dez.'];
+        return `${parseInt(d)}. ${mo[parseInt(m) - 1]} ${y}`;
+    };
+    return {
+        callsign:    first.callsign,
+        date:        parseDate(first.utc),
+        hours, mins,
+        totalKm:     Math.round(totalKm),
+        totalNm:     Math.round(totalKm / 1.852),
+        maxAltFt:    maxAlt,
+        maxAltKm:    (maxAlt * 0.3048 / 1000).toFixed(1),
+        maxSpeedKts: maxSpeed,
+        maxSpeedKmh: Math.round(maxSpeed * 1.852)
+    };
+}
+
+function renderFlightInfo(infoId, stats) {
+    const el = document.getElementById(infoId);
+    if (!el) return;
+    const fmt = n => n.toLocaleString('de-DE');
+    el.innerHTML = `
+        <div class="fi-stat">
+            <span class="fi-label">Flug</span>
+            <span class="fi-callsign">${stats.callsign}</span>
+        </div>
+        <div class="fi-stat">
+            <span class="fi-label">Datum</span>
+            <span class="fi-value">${stats.date}</span>
+        </div>
+        <div class="fi-stat">
+            <span class="fi-label">Flugzeit</span>
+            <span class="fi-value">${stats.hours}h ${String(stats.mins).padStart(2,'0')}min</span>
+        </div>
+        <div class="fi-divider"></div>
+        <div class="fi-stat">
+            <span class="fi-label">Strecke</span>
+            <span class="fi-value">${fmt(stats.totalKm)} km
+                <span class="fi-sub">(${fmt(stats.totalNm)} NM)</span>
+            </span>
+        </div>
+        <div class="fi-stat">
+            <span class="fi-label">Max. Höhe</span>
+            <span class="fi-value">${fmt(stats.maxAltFt)} ft
+                <span class="fi-sub">(${stats.maxAltKm} km)</span>
+            </span>
+        </div>
+        <div class="fi-stat">
+            <span class="fi-label">Max. Speed</span>
+            <span class="fi-value">${stats.maxSpeedKts} kts
+                <span class="fi-sub">(${fmt(stats.maxSpeedKmh)} km/h)</span>
+            </span>
+        </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Globe-Rendering
+// ---------------------------------------------------------------------------
+
+function renderGlobe(globeId, infoId, csvUrl) {
+    const container = document.getElementById(globeId);
     const world = Globe()(container)
         .globeImageUrl('//unpkg.com/three-globe/example/img/earth-night.jpg')
         .backgroundColor('rgba(0,0,0,0)');
 
-    const resizeObserver = new ResizeObserver(() => {
+    new ResizeObserver(() => {
         world.width(container.offsetWidth);
         world.height(container.offsetHeight);
-    });
-    resizeObserver.observe(container);
+    }).observe(container);
 
-    // Standard-Ansicht: Atlantik (FRA→MIA Route)
     world.pointOfView({ lat: 40, lng: -30, altitude: 2.5 }, 0);
 
-    if (!csvUrl) {
-        renderFallbackArc(world);
-        return;
-    }
+    if (!csvUrl) { renderFallbackArc(world); renderFlightInfoError(infoId); return; }
 
     fetch(csvUrl)
-        .then(res => {
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.text();
-        })
+        .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.text(); })
         .then(csvText => {
-            const points = parseFlightCSV(csvText);
-            if (points.length < 2) {
-                console.warn(`${containerId}: Zu wenig Datenpunkte, nutze Fallback`);
-                renderFallbackArc(world);
-                return;
-            }
-
+            const { points, rows } = parseFlightCSV(csvText);
+            if (points.length < 2) { renderFallbackArc(world); renderFlightInfoError(infoId); return; }
             world
                 .pathsData([{ pts: points }])
                 .pathPoints(d => d.pts)
@@ -143,37 +356,38 @@ function renderGlobe(containerId, csvUrl) {
                 .pathDashLength(0.05)
                 .pathDashGap(0.03)
                 .pathDashAnimateTime(8000);
-
             const mid = points[Math.floor(points.length / 2)];
             world.pointOfView({ lat: mid[0], lng: mid[1], altitude: 2.5 }, 2000);
+            if (rows.length >= 2) renderFlightInfo(infoId, computeFlightStats(rows));
         })
         .catch(err => {
-            console.warn(`Globe CSV Fehler (${containerId}):`, err);
+            console.warn(`Globe Fehler (${globeId}):`, err);
             renderFallbackArc(world);
+            renderFlightInfoError(infoId);
         });
 }
 
 function renderFallbackArc(world) {
     world
-        .arcsData([{
-            startLat: 50.0379, startLng: 8.5622,
-            endLat: 25.7959, endLng: -80.2870
-        }])
+        .arcsData([{ startLat: 50.0379, startLng: 8.5622, endLat: 25.7959, endLng: -80.2870 }])
         .arcColor(() => ['rgba(255,255,255,0.4)', '#00eeee'])
-        .arcDashLength(0.4)
-        .arcDashGap(0.2)
-        .arcDashAnimateTime(2000);
+        .arcDashLength(0.4).arcDashGap(0.2).arcDashAnimateTime(2000);
 }
+
+function renderFlightInfoError(infoId) {
+    const el = document.getElementById(infoId);
+    if (el) el.innerHTML = '<div class="fi-loading">Keine Flugdaten</div>';
+}
+
+// ---------------------------------------------------------------------------
+// Lightbox
+// ---------------------------------------------------------------------------
 
 function openLightbox(url) {
-    const lb = document.getElementById('lightbox');
-    const lbImg = document.getElementById('lightbox-img');
-    lbImg.src = url;
-    lb.classList.add('active');
+    document.getElementById('lightbox-img').src = url;
+    document.getElementById('lightbox').classList.add('active');
 }
 
-document.getElementById('lightbox').onclick = function() {
+document.getElementById('lightbox').onclick = function () {
     this.classList.remove('active');
 };
-
-initGallery();

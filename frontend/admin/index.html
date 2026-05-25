@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin | high definition</title>
+    <link rel="icon" type="image/svg+xml" href="/css/palm.svg">
+    <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+
+<!-- ===== HEADER (nur wenn eingeloggt) ===== -->
+<div class="admin-header" id="admin-header" style="display:none">
+    <h1>high definition · admin</h1>
+    <button class="logout-btn" onclick="logout()">Abmelden</button>
+</div>
+
+<!-- ===== SCHRITT 0: LOGIN ===== -->
+<div class="card" id="step-login">
+    <p class="step-label">Zugang</p>
+    <h2>Anmelden</h2>
+    <div class="field">
+        <label for="pw-input">Passwort</label>
+        <input type="password" id="pw-input" placeholder="···" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter') doLogin()">
+    </div>
+    <div class="btn-row">
+        <button class="btn btn-primary" onclick="doLogin()">Anmelden</button>
+    </div>
+    <p class="error-msg" id="login-error"></p>
+</div>
+
+<!-- ===== SCHRITT 1: GALERIE ERSTELLEN ===== -->
+<div class="card" id="step-create" style="display:none">
+    <p class="step-label">Schritt 1 von 2</p>
+    <h2>Neue Galerie</h2>
+    <div class="field">
+        <label for="gallery-title">Name der Galerie *</label>
+        <input type="text" id="gallery-title" placeholder="z.B. Miami 2026"
+               oninput="updateSlugPreview()">
+        <p class="slug-preview" id="slug-preview"></p>
+    </div>
+    <div class="field">
+        <label for="gallery-desc">Beschreibung (optional)</label>
+        <textarea id="gallery-desc" rows="3" placeholder="Kurze Beschreibung der Galerie …"></textarea>
+    </div>
+    <div class="btn-row">
+        <button class="btn btn-primary" id="create-btn" onclick="createGallery()">Galerie erstellen</button>
+    </div>
+    <p class="error-msg" id="create-error"></p>
+</div>
+
+<!-- ===== SCHRITT 2: ELEMENTE HINZUFÜGEN ===== -->
+<div class="card" id="step-elements" style="display:none">
+    <p class="step-label">Schritt 2 von 2</p>
+    <h2 id="elements-heading">Elemente hinzufügen</h2>
+
+    <!-- Liste der hinzugefügten Elemente -->
+    <div id="element-list" class="element-list"></div>
+
+    <p class="thumbnail-hint" id="thumb-hint" style="display:none">
+        ⭐ = Galerie-Thumbnail (wird auf der Profilseite angezeigt)
+    </p>
+
+    <!-- Panel: Foto hinzufügen -->
+    <div class="add-panel" id="photo-panel">
+        <h3>Foto hinzufügen</h3>
+        <div class="field">
+            <label>Bilddatei *</label>
+            <input type="file" id="photo-file" accept="image/*" style="color:rgba(255,255,255,0.5);font-size:0.75rem"
+                   onchange="onPhotoSelected()">
+        </div>
+        <div class="field" id="photo-preview-wrap" style="display:none">
+            <img id="photo-preview" style="max-width:100%;max-height:200px;border-radius:3px;object-fit:contain">
+        </div>
+        <div class="field">
+            <label for="photo-caption">Bildunterschrift (optional)</label>
+            <input type="text" id="photo-caption" placeholder="z.B. Sonnenuntergang über Miami Beach">
+        </div>
+        <div class="upload-progress" id="photo-progress">
+            <div class="progress-bar-wrap"><div class="progress-bar-fill" id="photo-progress-fill"></div></div>
+            <p class="progress-label" id="photo-progress-label">Hochladen …</p>
+        </div>
+        <div class="btn-row">
+            <button class="btn btn-primary" id="photo-upload-btn" onclick="uploadPhoto()">Hochladen</button>
+            <button class="btn btn-ghost" onclick="hidePanel('photo-panel')">Abbrechen</button>
+        </div>
+        <p class="error-msg" id="photo-error"></p>
+    </div>
+
+    <!-- Panel: Flugvisualisierung hinzufügen -->
+    <div class="add-panel" id="flight-panel">
+        <h3>Flugvisualisierung hinzufügen</h3>
+        <div class="field">
+            <label for="flight-label">Beschriftung *</label>
+            <input type="text" id="flight-label" placeholder="z.B. FRA — MIA">
+        </div>
+        <div class="field">
+            <label>FlightRadar24 CSV-Datei (optional)</label>
+            <input type="file" id="flight-csv" accept=".csv,.txt"
+                   style="color:rgba(255,255,255,0.5);font-size:0.75rem">
+        </div>
+        <div class="upload-progress" id="flight-progress">
+            <div class="progress-bar-wrap"><div class="progress-bar-fill" id="flight-progress-fill"></div></div>
+            <p class="progress-label" id="flight-progress-label">Hochladen …</p>
+        </div>
+        <div class="btn-row">
+            <button class="btn btn-primary" onclick="uploadFlight()">Hinzufügen</button>
+            <button class="btn btn-ghost" onclick="hidePanel('flight-panel')">Abbrechen</button>
+        </div>
+        <p class="error-msg" id="flight-error"></p>
+    </div>
+
+    <!-- Action-Buttons -->
+    <div class="btn-row">
+        <button class="btn btn-ghost" onclick="showPanel('photo-panel')">📷 Foto</button>
+        <button class="btn btn-ghost" onclick="showPanel('flight-panel')">✈️ Flugvisualisierung</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="btn-row">
+        <button class="btn btn-primary" onclick="finishGallery()">Galerie fertigstellen</button>
+    </div>
+</div>
+
+<!-- ===== FERTIG ===== -->
+<div class="card" id="step-done" style="display:none">
+    <div class="success-box">
+        <div class="success-icon">✓</div>
+        <p class="success-title" id="done-title">Galerie erstellt!</p>
+        <p class="success-sub" id="done-sub"></p>
+        <div>
+            <a class="success-link" id="done-view-link" href="#" target="_blank">Galerie ansehen →</a>
+            <a class="success-link" href="/admin/" onclick="resetAdmin()">Neue Galerie</a>
+            <a class="success-link" href="/koljagrosse/index.html">Alle Galerien</a>
+        </div>
+    </div>
+</div>
+
+<script src="/admin/admin.js"></script>
+</body>
+</html>
