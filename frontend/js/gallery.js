@@ -2,16 +2,6 @@ const API_URL        = "https://ejjvnnn1lj.execute-api.eu-central-1.amazonaws.co
 const MEDIA_BASE_URL = "https://high-definition.net/media/";
 
 // ---------------------------------------------------------------------------
-// Einstiegspunkt – dynamischer Modus wenn HD_USER / HD_GALLERY definiert sind
-// ---------------------------------------------------------------------------
-
-if (typeof HD_USER !== 'undefined' && typeof HD_GALLERY !== 'undefined') {
-    initGalleryDynamic(HD_USER, HD_GALLERY);
-} else {
-    initGallery();  // Legacy-Modus (2026Miami mit hardcodierten Globe-Wrappern)
-}
-
-// ---------------------------------------------------------------------------
 // Dynamischer Modus (neue Galerien via Admin-Tool erstellt)
 // ---------------------------------------------------------------------------
 
@@ -391,3 +381,118 @@ function openLightbox(url) {
 document.getElementById('lightbox').onclick = function () {
     this.classList.remove('active');
 };
+
+// ---------------------------------------------------------------------------
+// Dynamisches Rendering für neue Galerien (HD_USER + HD_GALLERY in HTML gesetzt)
+// ---------------------------------------------------------------------------
+
+async function initGalleryDynamic(userId, galleryId) {
+    try {
+        const url      = `${API_URL}?userId=${encodeURIComponent(userId)}&galleryId=${encodeURIComponent(galleryId)}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`API Fehler: ${response.status}`);
+        const data = await response.json();
+
+        const meta = data.find(item => item.GalleryId && item.GalleryId.startsWith('GALLERY#'));
+
+        // Bilder + Flüge nach SortOrder sortieren (undefined → 50 als Mittelwert)
+        const elements = data
+            .filter(item => item.GalleryId &&
+                (item.GalleryId.startsWith('IMAGE#') || item.GalleryId.startsWith('FLIGHT#')))
+            .sort((a, b) => {
+                const sa = (a.SortOrder !== undefined && a.SortOrder !== null) ? Number(a.SortOrder) : 50;
+                const sb = (b.SortOrder !== undefined && b.SortOrder !== null) ? Number(b.SortOrder) : 50;
+                return sa - sb;
+            });
+
+        // Header aus DynamoDB einfügen (kein Flash, weil <main> leer startet)
+        if (meta && (meta.Title || meta.Description)) {
+            const header = document.createElement('header');
+            if (meta.Title) {
+                const h1 = document.createElement('h1');
+                h1.innerText = meta.Title;
+                header.appendChild(h1);
+            }
+            if (meta.Description) {
+                const desc = document.createElement('div');
+                desc.className = 'description';
+                desc.innerText = meta.Description;
+                header.appendChild(desc);
+            }
+            document.querySelector('main.gallery-grid').before(header);
+        }
+
+        const main = document.getElementById('gallery');
+        let globeIndex = 1;
+
+        for (const item of elements) {
+            if (item.GalleryId.startsWith('IMAGE#')) {
+                main.appendChild(_buildImageEl(item));
+            } else if (item.GalleryId.startsWith('FLIGHT#')) {
+                const gId = `flightGlobe${globeIndex}`;
+                const iId = `flightInfo${globeIndex}`;
+                main.appendChild(_buildFlightEl(item, gId, iId));
+                const csvUrl = item.CsvUrl ? `${MEDIA_BASE_URL}${item.CsvUrl}` : null;
+                renderGlobe(gId, iId, csvUrl);
+                globeIndex++;
+            }
+        }
+
+        alignCaptionsToImages();
+        window.addEventListener('resize', alignCaptionsToImages);
+
+    } catch (err) {
+        console.error("Fehler beim Laden der Galerie:", err);
+    }
+}
+
+function _buildImageEl(img) {
+    const thumb    = (img.ThumbnailUrl || '').replace(/^\//, '');
+    const full     = (img.FullSizeUrl  || '').replace(/^\//, '');
+    const aperture = img.Aperture     || '—';
+    const shutter  = img.ShutterSpeed || '—';
+    const iso      = img.ISO          ? `ISO ${img.ISO}` : '—';
+    const caption  = img.Caption      || '';
+
+    const div = document.createElement('div');
+    div.className = 'image-container';
+    div.innerHTML = `
+        <img src="${MEDIA_BASE_URL}${thumb}"
+             onclick="openLightbox('${MEDIA_BASE_URL}${full}')"
+             alt="${caption}">
+        <div class="info-row">
+            <div class="metadata">${aperture} · ${shutter} · ${iso}</div>
+        </div>
+        ${caption ? `<div class="image-description">${caption}</div>` : ''}`;
+    return div;
+}
+
+function _buildFlightEl(flight, globeId, infoId) {
+    const label = flight.Label || '';
+    const div = document.createElement('div');
+    div.className = 'image-container';
+    div.innerHTML = `
+        <div class="flight-card">
+            <div class="flight-info" id="${infoId}">
+                <div class="fi-loading">Lade Flugdaten …</div>
+            </div>
+            <div class="globe-container">
+                <div id="${globeId}" class="flight-div"></div>
+            </div>
+        </div>
+        <div class="info-row">
+            <div class="metadata">${label}</div>
+            <div class="download-btn" style="cursor:default; background:#333; color:white;">3D Log</div>
+        </div>`;
+    return div;
+}
+
+// ---------------------------------------------------------------------------
+// Einstiegspunkt: dynamisch (neue Galerien) oder legacy (2026Miami)
+// ---------------------------------------------------------------------------
+
+if (typeof HD_USER !== 'undefined' && typeof HD_GALLERY !== 'undefined') {
+    initGalleryDynamic(HD_USER, HD_GALLERY);
+} else {
+    initGallery();
+}
