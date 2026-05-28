@@ -75,7 +75,7 @@
             <h3>Foto hinzufügen</h3>
             <div class="field">
                 <label>Bilddatei *</label>
-                <input type="file" id="photo-file" accept="image/*"
+                <input type="file" id="photo-file" accept="image/*" multiple
                        style="color:rgba(255,255,255,0.5);font-size:0.75rem"
                        onchange="onPhotoSelected()">
             </div>
@@ -105,8 +105,8 @@
                 <input type="text" id="flight-label" placeholder="z.B. FRA — MIA">
             </div>
             <div class="field">
-                <label>FlightRadar24 CSV-Datei (optional)</label>
-                <input type="file" id="flight-csv" accept=".csv,.txt"
+                <label>FlightRadar24 CSV-Dateien (optional, mehrere Legs möglich)</label>
+                <input type="file" id="flight-csv" accept=".csv,.txt" multiple
                        style="color:rgba(255,255,255,0.5);font-size:0.75rem">
             </div>
             <div class="upload-progress" id="flight-progress">
@@ -194,7 +194,7 @@
             <h3>Foto hinzufügen</h3>
             <div class="field">
                 <label>Bilddatei *</label>
-                <input type="file" id="edit-photo-file" accept="image/*"
+                <input type="file" id="edit-photo-file" accept="image/*" multiple
                        style="color:rgba(255,255,255,0.5);font-size:0.75rem"
                        onchange="onEditPhotoSelected()">
             </div>
@@ -225,7 +225,7 @@
             </div>
             <div class="field">
                 <label>FlightRadar24 CSV-Datei (optional)</label>
-                <input type="file" id="edit-flight-csv" accept=".csv,.txt"
+                <input type="file" id="edit-flight-csv" accept=".csv,.txt" multiple
                        style="color:rgba(255,255,255,0.5);font-size:0.75rem">
             </div>
             <div class="upload-progress" id="edit-flight-progress">

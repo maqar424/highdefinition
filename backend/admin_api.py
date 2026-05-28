@@ -322,17 +322,18 @@ def handle_register_image(event):
     gallery_id = f'IMAGE#{full_size_url}'
 
     # update_item statt put_item: verhindert Race-Condition mit process_image.py (S3-Trigger).
-    # process_image.py schreibt EXIF-Felder (Aperture, ShutterSpeed, ISO) ebenfalls via
-    # update_item – wir überschreiben sie hier nicht, da wir nur die Admin-Felder setzen.
+    # EXIF-Felder werden direkt aus dem Browser ausgelesen und hier gesetzt.
+    update_expr  = 'SET FullSizeUrl = :f, ThumbnailUrl = :t, Caption = :c, SortOrder = :s'
+    expr_values  = {':f': full_size_url, ':t': thumbnail_url, ':c': caption, ':s': sort_order}
+
+    if body.get('aperture'):     update_expr += ', Aperture = :ap';     expr_values[':ap']  = body['aperture']
+    if body.get('shutterSpeed'): update_expr += ', ShutterSpeed = :ss'; expr_values[':ss']  = body['shutterSpeed']
+    if body.get('iso'):          update_expr += ', ISO = :iso';         expr_values[':iso'] = body['iso']
+
     table.update_item(
         Key={'UserId': user_id, 'GalleryId': gallery_id},
-        UpdateExpression='SET FullSizeUrl = :f, ThumbnailUrl = :t, Caption = :c, SortOrder = :s',
-        ExpressionAttributeValues={
-            ':f': full_size_url,
-            ':t': thumbnail_url,
-            ':c': caption,
-            ':s': sort_order,
-        },
+        UpdateExpression=update_expr,
+        ExpressionAttributeValues=expr_values,
     )
     return _ok({'ok': True, 'galleryId': gallery_id})
 
@@ -351,6 +352,7 @@ def handle_update_image(event):
 
     updates = {}
     if 'caption'   in body: updates['Caption']   = body['caption']
+    if 'label'     in body: updates['Label']     = body['label']
     if 'sortOrder' in body: updates['SortOrder'] = int(body['sortOrder'])
 
     if not updates or not gallery_id:
@@ -406,16 +408,19 @@ def handle_register_flight(event):
         return auth
     body         = json.loads(event.get('body') or '{}')
     user_id      = body.get('userId', 'koljagrosse')
-    csv_url      = body.get('csvUrl', '')
+    csv_urls     = body.get('csvUrls', [])
+    if not csv_urls and body.get('csvUrl'):     # backward compat
+        csv_urls = [body['csvUrl']]
     label        = body.get('label', '')
     sort_order   = int(body.get('sortOrder', 50))
     gallery_slug = body.get('gallerySlug', '')
 
-    flight_key = csv_url or f'{user_id}/{gallery_slug}/flights/noflight-{int(time.time())}'
+    flight_key = csv_urls[0] if csv_urls else f'{user_id}/{gallery_slug}/flights/noflight-{int(time.time())}'
     item = {
         'UserId':    user_id,
         'GalleryId': f'FLIGHT#{flight_key}',
-        'CsvUrl':    csv_url,
+        'CsvUrls':   csv_urls,                  # Liste aller Legs
+        'CsvUrl':    csv_urls[0] if csv_urls else '',  # backward compat
         'Label':     label,
         'SortOrder': sort_order,
     }
@@ -434,15 +439,18 @@ def handle_delete_flight(event):
     body       = json.loads(event.get('body') or '{}')
     user_id    = body.get('userId', 'koljagrosse')
     gallery_id = body.get('galleryId', '')
-    csv_url    = body.get('csvUrl', '')
+    csv_urls   = body.get('csvUrls', [])
+    if not csv_urls and body.get('csvUrl'):     # backward compat
+        csv_urls = [body['csvUrl']]
 
     if gallery_id:
         table.delete_item(Key={'UserId': user_id, 'GalleryId': gallery_id})
-    if csv_url:
-        try:
-            s3.delete_object(Bucket=MEDIA_BUCKET, Key=f'{MEDIA_PREFIX}{csv_url}')
-        except Exception:
-            pass
+    for url in csv_urls:
+        if url:
+            try:
+                s3.delete_object(Bucket=MEDIA_BUCKET, Key=f'{MEDIA_PREFIX}{url}')
+            except Exception:
+                pass
     return _ok({'ok': True})
 
 

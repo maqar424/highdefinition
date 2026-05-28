@@ -2,109 +2,6 @@ const API_URL        = "https://ejjvnnn1lj.execute-api.eu-central-1.amazonaws.co
 const MEDIA_BASE_URL = "https://high-definition.net/media/";
 
 // ---------------------------------------------------------------------------
-// Dynamischer Modus (neue Galerien via Admin-Tool erstellt)
-// ---------------------------------------------------------------------------
-
-async function initGalleryDynamic(userId, galleryId) {
-    try {
-        const url      = `${API_URL}?userId=${userId}&galleryId=${galleryId}`;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`API Fehler: ${response.status}`);
-        const data = await response.json();
-
-        const meta    = data.find(i => i.GalleryId?.startsWith('GALLERY#'));
-        const elements = data
-            .filter(i => i.GalleryId?.startsWith('IMAGE#') || i.GalleryId?.startsWith('FLIGHT#'))
-            .map((item, idx) => ({ ...item, _idx: idx }))
-            .sort((a, b) => {
-                const sa = a.SortOrder ?? 50;
-                const sb = b.SortOrder ?? 50;
-                return sa !== sb ? sa - sb : a._idx - b._idx;
-            });
-
-        // Header dynamisch einfügen
-        if (meta && (meta.Title || meta.Description)) {
-            const header = document.createElement('header');
-            if (meta.Title) {
-                const h1 = document.createElement('h1');
-                h1.innerText = meta.Title;
-                header.appendChild(h1);
-            }
-            if (meta.Description) {
-                const desc = document.createElement('div');
-                desc.className = 'description';
-                desc.innerText = meta.Description;
-                header.appendChild(desc);
-            }
-            document.querySelector('main.gallery-grid').before(header);
-        }
-
-        // Elemente rendern
-        const main = document.getElementById('gallery');
-        let globeIdx = 1;
-
-        for (const item of elements) {
-            if (item.GalleryId.startsWith('IMAGE#')) {
-                main.appendChild(_buildImageEl(item));
-            } else if (item.GalleryId.startsWith('FLIGHT#')) {
-                const gId = `flightGlobe${globeIdx}`;
-                const iId = `flightInfo${globeIdx}`;
-                main.appendChild(_buildFlightEl(item, gId, iId));
-                const csvUrl = item.CsvUrl ? `${MEDIA_BASE_URL}${item.CsvUrl}` : null;
-                renderGlobe(gId, iId, csvUrl);
-                globeIdx++;
-            }
-        }
-
-        alignCaptionsToImages();
-        window.addEventListener('resize', alignCaptionsToImages);
-
-    } catch (err) {
-        console.error("Fehler beim Laden der Galerie:", err);
-    }
-}
-
-function _buildImageEl(img) {
-    const div      = document.createElement('div');
-    div.className  = 'image-container';
-    const thumb    = (img.ThumbnailUrl || '').replace(/^\//, '');
-    const full     = (img.FullSizeUrl  || '').replace(/^\//, '');
-    const aperture = img.Aperture     || '—';
-    const shutter  = img.ShutterSpeed || '—';
-    const iso      = img.ISO          ? `ISO ${img.ISO}` : '—';
-    const caption  = img.Caption      || '';
-    div.innerHTML = `
-        <img src="${MEDIA_BASE_URL}${thumb}"
-             onclick="openLightbox('${MEDIA_BASE_URL}${full}')"
-             alt="${caption}">
-        <div class="info-row">
-            <div class="metadata">${aperture} · ${shutter} · ${iso}</div>
-        </div>
-        ${caption ? `<div class="image-description">${caption}</div>` : ''}`;
-    return div;
-}
-
-function _buildFlightEl(flight, globeId, infoId) {
-    const div     = document.createElement('div');
-    div.className = 'image-container';
-    const label   = flight.Label || '';
-    div.innerHTML = `
-        <div class="flight-card">
-            <div class="flight-info" id="${infoId}">
-                <div class="fi-loading">Lade Flugdaten …</div>
-            </div>
-            <div class="globe-container">
-                <div id="${globeId}" class="flight-div"></div>
-            </div>
-        </div>
-        <div class="info-row">
-            <div class="metadata">${label}</div>
-            <div class="download-btn" style="cursor:default; background:#333; color:white;">3D Log</div>
-        </div>`;
-    return div;
-}
-
-// ---------------------------------------------------------------------------
 // Legacy-Modus (2026Miami – hardcodierte Globe-Wrapper in HTML)
 // ---------------------------------------------------------------------------
 
@@ -429,11 +326,19 @@ async function initGalleryDynamic(userId, galleryId) {
             if (item.GalleryId.startsWith('IMAGE#')) {
                 main.appendChild(_buildImageEl(item));
             } else if (item.GalleryId.startsWith('FLIGHT#')) {
-                const gId = `flightGlobe${globeIndex}`;
-                const iId = `flightInfo${globeIndex}`;
-                main.appendChild(_buildFlightEl(item, gId, iId));
-                const csvUrl = item.CsvUrl ? `${MEDIA_BASE_URL}${item.CsvUrl}` : null;
-                renderGlobe(gId, iId, csvUrl);
+                // Unterstützt CsvUrls (Array, mehrere Legs) und CsvUrl (einzeln, backward compat)
+                const csvUrls = Array.isArray(item.CsvUrls) && item.CsvUrls.length
+                    ? item.CsvUrls
+                    : (item.CsvUrl ? [item.CsvUrl] : []);
+                const gBase = `flightGlobe${globeIndex}`;
+                const iBase = `flightInfo${globeIndex}`;
+                main.appendChild(_buildFlightEl(item, gBase, iBase, csvUrls));
+                const legs = csvUrls.length ? csvUrls : [null];
+                legs.forEach((url, li) => {
+                    const sfx     = legs.length > 1 ? `_${li}` : '';
+                    const fullUrl = url ? `${MEDIA_BASE_URL}${url}` : null;
+                    renderGlobe(`${gBase}${sfx}`, `${iBase}${sfx}`, fullUrl);
+                });
                 globeIndex++;
             }
         }
@@ -467,18 +372,35 @@ function _buildImageEl(img) {
     return div;
 }
 
-function _buildFlightEl(flight, globeId, infoId) {
-    const label = flight.Label || '';
-    const div = document.createElement('div');
+function _buildFlightEl(flight, baseGlobeId, baseInfoId, csvUrls = []) {
+    const label   = flight.Label || '';
+    const div     = document.createElement('div');
     div.className = 'image-container';
+    const legs    = csvUrls.length > 1 ? csvUrls.map((_, i) => i) : [0];
+    const multi   = legs.length > 1;
+
+    const segmentsHtml = legs.map(i => {
+        const sfx = multi ? `_${i}` : '';
+        return multi
+            ? `<div class="flight-segment">
+                   <div class="flight-info" id="${baseInfoId}${sfx}">
+                       <div class="fi-loading">Lade Flugdaten …</div>
+                   </div>
+                   <div class="globe-container">
+                       <div id="${baseGlobeId}${sfx}" class="flight-div"></div>
+                   </div>
+               </div>`
+            : `<div class="flight-info" id="${baseInfoId}">
+                   <div class="fi-loading">Lade Flugdaten …</div>
+               </div>
+               <div class="globe-container">
+                   <div id="${baseGlobeId}" class="flight-div"></div>
+               </div>`;
+    }).join('');
+
     div.innerHTML = `
-        <div class="flight-card">
-            <div class="flight-info" id="${infoId}">
-                <div class="fi-loading">Lade Flugdaten …</div>
-            </div>
-            <div class="globe-container">
-                <div id="${globeId}" class="flight-div"></div>
-            </div>
+        <div class="flight-card${multi ? ' multi-leg' : ''}">
+            ${segmentsHtml}
         </div>
         <div class="info-row">
             <div class="metadata">${label}</div>

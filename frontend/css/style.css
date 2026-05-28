@@ -277,6 +277,31 @@ img {
     box-shadow: none;
 }
 
+/* Mehrere Legs in einer Flugkarte (multi-leg) */
+.flight-card.multi-leg {
+    flex-direction: column;
+    aspect-ratio: unset;
+    gap: 1px;
+}
+.flight-segment {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    aspect-ratio: 16 / 7;
+    overflow: hidden;
+}
+.flight-segment .flight-info {
+    width: 240px;
+    flex-shrink: 0;
+}
+.flight-segment .globe-container {
+    flex: 1;
+    aspect-ratio: unset;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+}
+
 /* Standalone Globe-Container (Fallback, falls außerhalb .flight-card) */
 .globe-container {
     width: 100%;

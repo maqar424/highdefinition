@@ -489,3 +489,42 @@ input:focus, textarea:focus {
     align-self: center;
     min-height: 1em;
 }
+
+/* ---------- Drag & Drop ---------- */
+.drag-handle {
+    font-size: 0.9rem;
+    color: rgba(255,255,255,0.18);
+    cursor: grab;
+    flex-shrink: 0;
+    padding: 0 2px;
+    user-select: none;
+    transition: color 0.15s;
+}
+.drag-handle:hover { color: rgba(255,255,255,0.5); }
+
+.element-item.dragging {
+    opacity: 0.35;
+}
+.element-item.drag-over {
+    border-color: rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.04);
+}
+
+/* ---------- Inline caption input ---------- */
+.caption-input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid transparent;
+    color: rgba(255,255,255,0.75);
+    font-size: 0.72rem;
+    font-family: inherit;
+    padding: 2px 0;
+    outline: none;
+    transition: border-color 0.2s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.caption-input:hover  { border-bottom-color: rgba(255,255,255,0.15); }
+.caption-input:focus  { border-bottom-color: rgba(255,255,255,0.35); }

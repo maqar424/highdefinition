@@ -12,10 +12,9 @@ const DEFAULT_USER = "koljagrosse";
 let state = {
     token:              null,
     userId:             DEFAULT_USER,
-    // Create-Modus
     gallerySlug:        null,
     galleryTitle:       null,
-    elements:           [],
+    elements:           [],      // { type, galleryId, label, thumbUrl, fullUrl, csvUrls, sortOrder }
     thumbnailGalleryId: null,
     sortCounter:        1,
 };
@@ -24,9 +23,82 @@ let editState = {
     slug:     null,
     title:    '',
     desc:     '',
-    items:    [],      // geladene IMAGE#/FLIGHT# Items
-    maxOrder: 0,       // höchste SortOrder für neue Items
+    items:    [],   // DynamoDB IMAGE# / FLIGHT# items
+    maxOrder: 0,
 };
+
+// ---------------------------------------------------------------------------
+// Utility helpers
+// ---------------------------------------------------------------------------
+
+function escapeHtml(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ---------------------------------------------------------------------------
+// Browser-seitiger EXIF-Parser
+// Liest Aperture (FNumber), ShutterSpeed (ExposureTime), ISO aus JPEG-Dateien.
+// ---------------------------------------------------------------------------
+
+function readExif(file) {
+    return new Promise(resolve => {
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (ext !== 'jpg' && ext !== 'jpeg') return resolve({});
+        const reader = new FileReader();
+        reader.onload  = e => { try { resolve(_parseExif(new DataView(e.target.result))); } catch { resolve({}); } };
+        reader.onerror = () => resolve({});
+        reader.readAsArrayBuffer(file.slice(0, 131072)); // erste 128 KB
+    });
+}
+
+function _parseExif(dv) {
+    if (dv.byteLength < 4 || dv.getUint16(0) !== 0xFFD8) return {};
+    let off = 2;
+    while (off + 4 <= dv.byteLength) {
+        if (dv.getUint8(off) !== 0xFF) break;
+        const marker = dv.getUint8(off + 1);
+        if (marker === 0xDA) break;                  // Start of Scan
+        const segLen = dv.getUint16(off + 2);
+        if (marker === 0xE1 && off + 10 <= dv.byteLength) {
+            if (dv.getUint32(off + 4) === 0x45786966 && dv.getUint16(off + 8) === 0x0000)
+                return _parseTiff(dv, off + 10);
+        }
+        off += 2 + segLen;
+    }
+    return {};
+}
+
+function _parseTiff(dv, base) {
+    if (base + 8 > dv.byteLength) return {};
+    const le  = dv.getUint16(base) === 0x4949;      // 'II' = little-endian
+    const u16 = o => dv.getUint16(base + o, le);
+    const u32 = o => dv.getUint32(base + o, le);
+    const rat = o => { const n = u32(o), d = u32(o + 4); return d ? n / d : null; };
+    const result = {};
+    const readIFD = start => {
+        if (start + 2 > dv.byteLength - base) return;
+        const n = u16(start);
+        for (let i = 0; i < n; i++) {
+            const p = start + 2 + i * 12;
+            if (base + p + 12 > dv.byteLength) break;
+            const tag = u16(p), type = u16(p + 2), v = p + 8;
+            if (tag === 0x8769) { readIFD(u32(v)); }                      // ExifIFD pointer
+            else if (tag === 0x829A) {                                      // ExposureTime
+                const r = rat(u32(v)); if (r !== null)
+                    result.ShutterSpeed = r >= 1 ? `${r.toFixed(1)}s` : `1/${Math.round(1/r)}s`;
+            } else if (tag === 0x829D) {                                    // FNumber
+                const r = rat(u32(v)); if (r !== null)
+                    result.Aperture = `f/${r.toFixed(1)}`;
+            } else if (tag === 0x8827 && type === 3) {                      // ISO
+                result.ISO = String(u16(v));
+            }
+        }
+    };
+    readIFD(u32(4));
+    return result;
+}
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -83,7 +155,6 @@ function switchTab(tab) {
     if (tab === 'create') {
         show('tab-create');
         hide('tab-manage');
-        // Create-Modus: zeige den richtigen Step
         if (!state.gallerySlug) {
             show('step-create'); hide('step-elements'); hide('step-done');
         }
@@ -132,6 +203,7 @@ async function createGallery() {
         hide('step-create');
         show('step-elements');
         document.getElementById('elements-heading').textContent = `Elemente für „${title}"`;
+        renderElementList();
     } catch (e) {
         err.textContent = e.message;
     } finally {
@@ -140,14 +212,18 @@ async function createGallery() {
 }
 
 // ---------------------------------------------------------------------------
-// Schritt 2: Foto hochladen (Create-Modus)
+// Schritt 2: Foto hochladen (Create-Modus) – unterstützt mehrere Dateien
 // ---------------------------------------------------------------------------
 
 function onPhotoSelected() {
-    const file = document.getElementById('photo-file').files[0];
-    if (!file) return;
-    document.getElementById('photo-preview').src = URL.createObjectURL(file);
+    const files   = document.getElementById('photo-file').files;
+    const caption = document.getElementById('photo-caption');
+    if (!files.length) return;
+    document.getElementById('photo-preview').src = URL.createObjectURL(files[0]);
     show('photo-preview-wrap');
+    caption.placeholder = files.length > 1
+        ? `${files.length} Bilder – Caption nach dem Upload editierbar`
+        : 'z.B. Sonnenuntergang über Miami Beach';
 }
 
 async function uploadPhoto() {
@@ -157,24 +233,30 @@ async function uploadPhoto() {
     const btn       = document.getElementById('photo-upload-btn');
     err.textContent = '';
 
-    const file = fileInput.files[0];
-    if (!file) { err.textContent = 'Bitte eine Datei auswählen.'; return; }
+    const files = Array.from(fileInput.files);
+    if (!files.length) { err.textContent = 'Bitte eine Datei auswählen.'; return; }
 
     btn.disabled = true;
-    setProgress('photo', 0, 'Thumbnail wird generiert …');
     showEl('photo-progress');
 
     try {
-        const result = await _doPhotoUpload(file, caption, state.gallerySlug, state.sortCounter++);
-
-        state.elements.push(result.element);
-        renderElementList();
+        for (let idx = 0; idx < files.length; idx++) {
+            const file  = files[idx];
+            const cap   = files.length === 1 ? caption : '';
+            const order = state.sortCounter++;
+            setProgress('photo', 0,
+                files.length > 1 ? `Bild ${idx + 1}/${files.length}: Thumbnail …` : 'Thumbnail wird generiert …');
+            const result = await _doPhotoUpload(file, cap, state.gallerySlug, order, 'photo');
+            state.elements.push({ ...result.element, sortOrder: order });
+            renderElementList();
+        }
 
         setTimeout(() => {
             hideEl('photo-progress');
             hidePanel('photo-panel');
             fileInput.value = '';
             document.getElementById('photo-caption').value = '';
+            document.getElementById('photo-caption').placeholder = 'z.B. Sonnenuntergang über Miami Beach';
             document.getElementById('photo-preview').src = '';
             hide('photo-preview-wrap');
             btn.disabled = false;
@@ -191,17 +273,16 @@ async function uploadPhoto() {
 // ---------------------------------------------------------------------------
 
 async function uploadFlight() {
-    const label   = document.getElementById('flight-label').value.trim();
-    const csvFile = document.getElementById('flight-csv').files[0];
-    const err     = document.getElementById('flight-error');
+    const label    = document.getElementById('flight-label').value.trim();
+    const csvFiles = document.getElementById('flight-csv').files;
+    const err      = document.getElementById('flight-error');
     err.textContent = '';
     if (!label) { err.textContent = 'Bitte eine Beschriftung eingeben.'; return; }
 
-    const result = await _doFlightUpload(label, csvFile, state.gallerySlug, state.sortCounter++,
-        'flight', 'flight-error');
-
+    const order  = state.sortCounter++;
+    const result = await _doFlightUpload(label, csvFiles, state.gallerySlug, order, 'flight', 'flight-error');
     if (result) {
-        state.elements.push(result.element);
+        state.elements.push({ ...result.element, sortOrder: order });
         renderElementList();
         setTimeout(() => {
             hidePanel('flight-panel');
@@ -216,10 +297,14 @@ async function uploadFlight() {
 // ---------------------------------------------------------------------------
 
 async function _doPhotoUpload(file, caption, gallerySlug, sortOrder, progressPrefix = 'photo') {
-    const thumbBlob = await generateThumbnail(file);     // 2200px / 0.78 WebP
-    const ext       = file.name.split('.').pop().toLowerCase();
-    const stem      = sanitizeFilename(file.name.replace(/\.[^/.]+$/, ''));
-    const fullName  = `${stem}.${ext}`;
+    const [thumbBlob, exif] = await Promise.all([
+        generateThumbnail(file),    // 2200px / 0.78 / WebP
+        readExif(file),             // EXIF aus JPEG-Original
+    ]);
+
+    const ext      = file.name.split('.').pop().toLowerCase();
+    const stem     = sanitizeFilename(file.name.replace(/\.[^/.]+$/, ''));
+    const fullName = `${stem}.${ext}`;
     const thumbName = `${stem}.webp`;
 
     setProgress(progressPrefix, 15, 'Presigned URL anfordern …');
@@ -238,9 +323,14 @@ async function _doPhotoUpload(file, caption, gallerySlug, sortOrder, progressPre
     await uploadToS3(pThumb.url, thumbBlob, 'image/webp', p => setProgress(progressPrefix, 70 + p * 20, 'Thumbnail …'));
 
     setProgress(progressPrefix, 92, 'In Datenbank eintragen …');
-    const reg = await apiCall('/admin/image', 'POST', {
-        userId: state.userId, fullSizeUrl: pFull.key, thumbnailUrl: pThumb.key, caption, sortOrder,
-    });
+
+    // EXIF aus Browser-Extraktion mitschicken
+    const regBody = { userId: state.userId, fullSizeUrl: pFull.key, thumbnailUrl: pThumb.key, caption, sortOrder };
+    if (exif.Aperture)     regBody.aperture     = exif.Aperture;
+    if (exif.ShutterSpeed) regBody.shutterSpeed = exif.ShutterSpeed;
+    if (exif.ISO)          regBody.iso          = exif.ISO;
+
+    const reg     = await apiCall('/admin/image', 'POST', regBody);
     const regData = await reg.json();
     if (!reg.ok) throw new Error(regData.error);
 
@@ -249,36 +339,45 @@ async function _doPhotoUpload(file, caption, gallerySlug, sortOrder, progressPre
     return {
         element: {
             type: 'image', galleryId: regData.galleryId, label: caption || fullName,
-            thumbUrl: `${MEDIA_BASE}${pThumb.key}`, fullUrl: `${MEDIA_BASE}${pFull.key}`, csvUrl: null,
+            thumbUrl: `${MEDIA_BASE}${pThumb.key}`, fullUrl: `${MEDIA_BASE}${pFull.key}`, csvUrls: [],
         },
         galleryId:    regData.galleryId,
         thumbnailUrl: pThumb.key,
     };
 }
 
-async function _doFlightUpload(label, csvFile, gallerySlug, sortOrder, progressPrefix, errorId) {
-    let csvUrl = '';
+async function _doFlightUpload(label, csvFiles, gallerySlug, sortOrder, progressPrefix, errorId) {
+    const files    = csvFiles ? Array.from(csvFiles) : [];
+    const csvUrls  = [];
 
-    if (csvFile) {
-        setProgress(progressPrefix, 0, 'CSV hochladen …');
+    if (files.length > 0) {
         showEl(`${progressPrefix}-progress`);
-        try {
-            const csvName = sanitizeFilename(csvFile.name);
-            const presign = await apiCall('/admin/presign', 'POST', {
-                userId: state.userId, gallerySlug, filename: csvName, fileType: 'text/csv', folder: 'flights',
-            }).then(r => r.json());
-            if (presign.error) throw new Error(presign.error);
-            await uploadToS3(presign.url, csvFile, 'text/csv', p => setProgress(progressPrefix, p * 80, 'CSV …'));
-            csvUrl = presign.key;
-            setProgress(progressPrefix, 85, 'Eintragen …');
-        } catch (e) {
-            document.getElementById(errorId).textContent = e.message;
-            hideEl(`${progressPrefix}-progress`);
-            return null;
+        for (let idx = 0; idx < files.length; idx++) {
+            const csvFile = files[idx];
+            setProgress(progressPrefix,
+                Math.round(idx * 80 / files.length),
+                files.length > 1 ? `CSV ${idx + 1}/${files.length} hochladen …` : 'CSV hochladen …');
+            try {
+                const csvName = sanitizeFilename(csvFile.name);
+                const presign = await apiCall('/admin/presign', 'POST', {
+                    userId: state.userId, gallerySlug, filename: csvName, fileType: 'text/csv', folder: 'flights',
+                }).then(r => r.json());
+                if (presign.error) throw new Error(presign.error);
+                await uploadToS3(presign.url, csvFile, 'text/csv',
+                    p => setProgress(progressPrefix,
+                        Math.round(idx * 80 / files.length + p * 80 / files.length),
+                        `CSV ${files.length > 1 ? `${idx + 1}/${files.length}` : ''} …`));
+                csvUrls.push(presign.key);
+            } catch (e) {
+                document.getElementById(errorId).textContent = e.message;
+                hideEl(`${progressPrefix}-progress`);
+                return null;
+            }
         }
+        setProgress(progressPrefix, 85, 'Eintragen …');
     }
 
-    const res  = await apiCall('/admin/flight', 'POST', { userId: state.userId, gallerySlug, csvUrl, label, sortOrder });
+    const res  = await apiCall('/admin/flight', 'POST', { userId: state.userId, gallerySlug, csvUrls, label, sortOrder });
     const data = await res.json();
     if (!res.ok) { document.getElementById(errorId).textContent = data.error; return null; }
 
@@ -286,7 +385,7 @@ async function _doFlightUpload(label, csvFile, gallerySlug, sortOrder, progressP
     setTimeout(() => hideEl(`${progressPrefix}-progress`), 800);
 
     return {
-        element: { type: 'flight', galleryId: data.galleryId, label, thumbUrl: null, fullUrl: null, csvUrl },
+        element: { type: 'flight', galleryId: data.galleryId, label, thumbUrl: null, fullUrl: null, csvUrls },
     };
 }
 
@@ -312,15 +411,23 @@ function renderElementList() {
         const starBtn = el.type === 'image'
             ? `<button class="icon-btn ${isThumb ? 'active' : ''}" title="Als Thumbnail" onclick="setThumbnail(${i})">⭐</button>` : '';
         return `
-            <div class="element-item">
+            <div class="element-item" draggable="true"
+                 ondragstart="onDragStart(event,${i},'create')"
+                 ondragend="onDragEnd(event)"
+                 ondragover="onDragOver(event,${i},'create')"
+                 ondragleave="onDragLeave(event)"
+                 ondrop="onDrop(event,${i},'create')">
+                <div class="drag-handle">⠿</div>
                 ${thumbHtml}
                 <div class="element-info">
-                    <p class="element-name">${el.label || '—'}</p>
-                    <p class="element-sub">${el.type === 'image' ? 'Foto' : 'Flugvisualisierung'} · #${i + 1}</p>
+                    <input class="caption-input" type="text" value="${escapeHtml(el.label)}"
+                           onblur="updateCreateCaption(${i}, this.value)"
+                           placeholder="${el.type === 'image' ? 'Bildunterschrift' : 'Beschriftung'}">
+                    <p class="element-sub">${el.type === 'image' ? 'Foto' : 'Flug'} · #${i + 1}</p>
                 </div>
                 <div class="element-actions">
                     ${starBtn}
-                    <button class="icon-btn" onclick="deleteElement(${i})">🗑</button>
+                    <button class="icon-btn" title="Löschen" onclick="deleteElement(${i})">🗑</button>
                 </div>
             </div>`;
     }).join('');
@@ -335,9 +442,21 @@ async function setThumbnail(index) {
     renderElementList();
 }
 
+async function updateCreateCaption(index, value) {
+    const el = state.elements[index];
+    if (!el || el.label === value) return;
+    el.label = value;
+    if (el.galleryId) {
+        const body = el.type === 'flight'
+            ? { userId: state.userId, galleryId: el.galleryId, label: value }
+            : { userId: state.userId, galleryId: el.galleryId, caption: value };
+        apiCall('/admin/image', 'PUT', body); // fire-and-forget
+    }
+}
+
 async function deleteElement(index) {
     const el = state.elements[index];
-    if (!confirm(`„${el.label}" löschen?`)) return;
+    if (!confirm(`„${el.label || el.type}" löschen?`)) return;
     if (el.type === 'image') {
         await apiCall('/admin/image', 'DELETE', {
             userId: state.userId, galleryId: el.galleryId,
@@ -346,7 +465,7 @@ async function deleteElement(index) {
         });
     } else {
         await apiCall('/admin/flight', 'DELETE', {
-            userId: state.userId, galleryId: el.galleryId, csvUrl: el.csvUrl || '',
+            userId: state.userId, galleryId: el.galleryId, csvUrls: el.csvUrls || [],
         });
     }
     if (state.thumbnailGalleryId === el.galleryId) state.thumbnailGalleryId = null;
@@ -399,8 +518,8 @@ async function loadGalleryList() {
             return;
         }
         listEl.innerHTML = data.map(g => {
-            const slug    = g.Slug || g.GalleryId?.replace('GALLERY#', '');
-            const title   = g.Title || slug;
+            const slug     = g.Slug || g.GalleryId?.replace('GALLERY#', '');
+            const title    = g.Title || slug;
             const thumbUrl = g.ThumbnailUrl ? `${MEDIA_BASE}${g.ThumbnailUrl}` : null;
             const thumbHtml = thumbUrl
                 ? `<img class="gallery-card-thumb" src="${thumbUrl}" alt="">`
@@ -409,12 +528,12 @@ async function loadGalleryList() {
                 <div class="gallery-card">
                     ${thumbHtml}
                     <div class="gallery-card-info">
-                        <p class="gallery-card-title">${title}</p>
+                        <p class="gallery-card-title">${escapeHtml(title)}</p>
                         <p class="gallery-card-slug">/${state.userId}/${slug}/</p>
                     </div>
                     <div class="gallery-card-actions">
                         <button class="btn btn-ghost btn-sm" onclick="openGalleryEditor('${slug}')">Bearbeiten</button>
-                        <button class="btn btn-danger btn-sm" onclick="deleteGallery('${slug}', '${title}')">Löschen</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteGallery('${slug}','${escapeHtml(title)}')">Löschen</button>
                     </div>
                 </div>`;
         }).join('');
@@ -441,14 +560,12 @@ async function openGalleryEditor(slug) {
     document.getElementById('edit-meta-msg').textContent = '';
 
     try {
-        // Galerie-Items aus der öffentlichen API laden
         const res  = await fetch(`${GALLERY_API}?userId=${state.userId}&galleryId=${slug}`);
         const data = await res.json();
 
         const meta  = data.find(i => i.GalleryId?.startsWith('GALLERY#'));
         editState.title = meta?.Title || '';
         editState.desc  = meta?.Description || '';
-
         document.getElementById('edit-title').value = editState.title;
         document.getElementById('edit-desc').value  = editState.desc;
 
@@ -460,9 +577,7 @@ async function openGalleryEditor(slug) {
         rawItems.forEach((item, i) => { item.SortOrder = (i + 1) * 10; });
         editState.items    = rawItems;
         editState.maxOrder = rawItems.length * 10;
-
         renderEditorItems();
-
     } catch (e) {
         document.getElementById('editor-item-list').innerHTML =
             `<p class="empty-hint" style="color:rgba(255,100,100,0.7)">${e.message}</p>`;
@@ -475,35 +590,34 @@ async function openGalleryEditor(slug) {
 
 function renderEditorItems() {
     const list = document.getElementById('editor-item-list');
-
     if (editState.items.length === 0) {
         list.innerHTML = '<p class="empty-hint">Noch keine Elemente in dieser Galerie.</p>';
         return;
     }
-
     list.innerHTML = editState.items.map((item, i) => {
-        const isImage   = item.GalleryId.startsWith('IMAGE#');
-        const thumbUrl  = item.ThumbnailUrl ? `${MEDIA_BASE}${item.ThumbnailUrl}` : null;
+        const isImage  = item.GalleryId.startsWith('IMAGE#');
+        const thumbUrl = item.ThumbnailUrl ? `${MEDIA_BASE}${item.ThumbnailUrl}` : null;
         const thumbHtml = thumbUrl
             ? `<img class="element-thumb" src="${thumbUrl}" alt="">`
             : `<div class="element-thumb-placeholder">${isImage ? '🖼' : '✈️'}</div>`;
-        const label = isImage
-            ? (item.Caption || item.FullSizeUrl?.split('/').pop() || '—')
-            : (item.Label || 'Flug');
-        const isFirst = i === 0;
-        const isLast  = i === editState.items.length - 1;
-
+        const label = isImage ? (item.Caption || '') : (item.Label || '');
         return `
-            <div class="element-item" id="eitem-${i}">
+            <div class="element-item" draggable="true"
+                 ondragstart="onDragStart(event,${i},'edit')"
+                 ondragend="onDragEnd(event)"
+                 ondragover="onDragOver(event,${i},'edit')"
+                 ondragleave="onDragLeave(event)"
+                 ondrop="onDrop(event,${i},'edit')">
+                <div class="drag-handle">⠿</div>
                 ${thumbHtml}
                 <div class="element-info">
-                    <p class="element-name">${label}</p>
+                    <input class="caption-input" type="text" value="${escapeHtml(label)}"
+                           onblur="updateEditorCaption(${i}, this.value)"
+                           placeholder="${isImage ? 'Bildunterschrift' : 'Beschriftung'}">
                     <p class="element-sub">${isImage ? 'Foto' : 'Flug'} · #${i + 1}</p>
                 </div>
                 <div class="element-actions">
-                    ${isImage ? `<button class="icon-btn" onclick="setEditorThumbnail(${i})" title="Als Galerie-Thumbnail">⭐</button>` : ''}
-                    <button class="icon-btn" onclick="moveEditorItem(${i}, -1)" ${isFirst ? 'disabled' : ''} title="Nach oben">↑</button>
-                    <button class="icon-btn" onclick="moveEditorItem(${i},  1)" ${isLast  ? 'disabled' : ''} title="Nach unten">↓</button>
+                    ${isImage ? `<button class="icon-btn" onclick="setEditorThumbnail(${i})" title="Als Thumbnail">⭐</button>` : ''}
                     <button class="icon-btn" onclick="deleteEditorItem(${i})" title="Löschen">🗑</button>
                 </div>
             </div>`;
@@ -537,38 +651,27 @@ async function saveEditorMeta() {
 }
 
 // ---------------------------------------------------------------------------
-// Item verschieben
+// Caption / Label im Editor aktualisieren
 // ---------------------------------------------------------------------------
 
-async function moveEditorItem(index, dir) {
-    const swapIdx = index + dir;
-    if (swapIdx < 0 || swapIdx >= editState.items.length) return;
-
-    const a = editState.items[index];
-    const b = editState.items[swapIdx];
-
-    // SortOrders tauschen
-    const tmpOrder = a.SortOrder;
-    a.SortOrder = b.SortOrder;
-    b.SortOrder = tmpOrder;
-
-    // Beide in DynamoDB speichern
-    await Promise.all([
-        apiCall('/admin/image', 'PUT', { userId: state.userId, galleryId: a.GalleryId, sortOrder: a.SortOrder }),
-        apiCall('/admin/image', 'PUT', { userId: state.userId, galleryId: b.GalleryId, sortOrder: b.SortOrder }),
-    ]);
-
-    editState.items[index]   = b;
-    editState.items[swapIdx] = a;
-    renderEditorItems();
+async function updateEditorCaption(index, value) {
+    const item = editState.items[index];
+    if (!item) return;
+    if (item.GalleryId.startsWith('IMAGE#')) {
+        item.Caption = value;
+        apiCall('/admin/image', 'PUT', { userId: state.userId, galleryId: item.GalleryId, caption: value });
+    } else {
+        item.Label = value;
+        apiCall('/admin/image', 'PUT', { userId: state.userId, galleryId: item.GalleryId, label: value });
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Item löschen
+// Item löschen (Editor)
 // ---------------------------------------------------------------------------
 
 async function deleteEditorItem(index) {
-    const item = editState.items[index];
+    const item  = editState.items[index];
     const label = item.GalleryId.startsWith('IMAGE#')
         ? (item.Caption || item.FullSizeUrl?.split('/').pop()) : item.Label;
     if (!confirm(`„${label}" löschen?`)) return;
@@ -580,8 +683,9 @@ async function deleteEditorItem(index) {
             thumbnailUrl: item.ThumbnailUrl || '',
         });
     } else {
+        const csvUrls = item.CsvUrls || (item.CsvUrl ? [item.CsvUrl] : []);
         await apiCall('/admin/flight', 'DELETE', {
-            userId: state.userId, galleryId: item.GalleryId, csvUrl: item.CsvUrl || '',
+            userId: state.userId, galleryId: item.GalleryId, csvUrls,
         });
     }
     editState.items.splice(index, 1);
@@ -589,7 +693,7 @@ async function deleteEditorItem(index) {
 }
 
 // ---------------------------------------------------------------------------
-// Galerie-Thumbnail setzen
+// Galerie-Thumbnail setzen (Editor)
 // ---------------------------------------------------------------------------
 
 async function setEditorThumbnail(index) {
@@ -604,14 +708,18 @@ async function setEditorThumbnail(index) {
 }
 
 // ---------------------------------------------------------------------------
-// Foto zum Editor hinzufügen
+// Foto zum Editor hinzufügen (unterstützt mehrere Dateien)
 // ---------------------------------------------------------------------------
 
 function onEditPhotoSelected() {
-    const file = document.getElementById('edit-photo-file').files[0];
-    if (!file) return;
-    document.getElementById('edit-photo-preview').src = URL.createObjectURL(file);
+    const files = document.getElementById('edit-photo-file').files;
+    if (!files.length) return;
+    document.getElementById('edit-photo-preview').src = URL.createObjectURL(files[0]);
     show('edit-photo-preview-wrap');
+    const cap = document.getElementById('edit-photo-caption');
+    cap.placeholder = files.length > 1
+        ? `${files.length} Bilder – Caption nach Upload editierbar`
+        : 'z.B. Sonnenuntergang über Miami Beach';
 }
 
 async function uploadPhotoEdit() {
@@ -621,32 +729,36 @@ async function uploadPhotoEdit() {
     const btn       = document.getElementById('edit-photo-upload-btn');
     err.textContent = '';
 
-    const file = fileInput.files[0];
-    if (!file) { err.textContent = 'Bitte eine Datei auswählen.'; return; }
+    const files = Array.from(fileInput.files);
+    if (!files.length) { err.textContent = 'Bitte eine Datei auswählen.'; return; }
 
     btn.disabled = true;
-    editState.maxOrder += 10;
-    const sortOrder = editState.maxOrder;
-
-    setProgress('edit-photo', 0, 'Thumbnail wird generiert …');
     showEl('edit-photo-progress');
 
     try {
-        const result = await _doPhotoUpload(file, caption, editState.slug, sortOrder, 'edit-photo');
-        editState.items.push({
-            GalleryId:    result.galleryId,
-            FullSizeUrl:  result.element.fullUrl.replace(MEDIA_BASE, ''),
-            ThumbnailUrl: result.thumbnailUrl,
-            Caption:      caption,
-            SortOrder:    sortOrder,
-        });
-        renderEditorItems();
+        for (let idx = 0; idx < files.length; idx++) {
+            const file = files[idx];
+            const cap  = files.length === 1 ? caption : '';
+            if (files.length > 1) setProgress('edit-photo', 0, `Bild ${idx + 1}/${files.length}: Thumbnail …`);
+            else                   setProgress('edit-photo', 0, 'Thumbnail wird generiert …');
+            editState.maxOrder += 10;
+            const sortOrder = editState.maxOrder;
+            const result = await _doPhotoUpload(file, cap, editState.slug, sortOrder, 'edit-photo');
+            editState.items.push({
+                GalleryId:    result.galleryId,
+                FullSizeUrl:  result.element.fullUrl.replace(MEDIA_BASE, ''),
+                ThumbnailUrl: result.thumbnailUrl,
+                Caption:      cap,
+                SortOrder:    sortOrder,
+            });
+            renderEditorItems();
+        }
         setTimeout(() => {
             hideEl('edit-photo-progress');
             hidePanel('edit-photo-panel');
             fileInput.value = '';
             document.getElementById('edit-photo-caption').value = '';
-            document.getElementById('edit-photo-preview').src = '';
+            document.getElementById('edit-photo-preview').src   = '';
             hide('edit-photo-preview-wrap');
             btn.disabled = false;
         }, 800);
@@ -658,26 +770,24 @@ async function uploadPhotoEdit() {
 }
 
 // ---------------------------------------------------------------------------
-// Flug zum Editor hinzufügen
+// Flug zum Editor hinzufügen (mehrere CSV möglich)
 // ---------------------------------------------------------------------------
 
 async function uploadFlightEdit() {
-    const label   = document.getElementById('edit-flight-label').value.trim();
-    const csvFile = document.getElementById('edit-flight-csv').files[0];
-    const err     = document.getElementById('edit-flight-error');
+    const label    = document.getElementById('edit-flight-label').value.trim();
+    const csvFiles = document.getElementById('edit-flight-csv').files;
+    const err      = document.getElementById('edit-flight-error');
     err.textContent = '';
     if (!label) { err.textContent = 'Bitte eine Beschriftung eingeben.'; return; }
 
     editState.maxOrder += 10;
     const sortOrder = editState.maxOrder;
-
-    const result = await _doFlightUpload(label, csvFile, editState.slug, sortOrder,
-        'edit-flight', 'edit-flight-error');
-
+    const result = await _doFlightUpload(label, csvFiles, editState.slug, sortOrder, 'edit-flight', 'edit-flight-error');
     if (result) {
         editState.items.push({
             GalleryId: result.element.galleryId,
-            CsvUrl:    result.element.csvUrl,
+            CsvUrls:   result.element.csvUrls,
+            CsvUrl:    result.element.csvUrls[0] || '',
             Label:     label,
             SortOrder: sortOrder,
         });
@@ -707,6 +817,66 @@ async function deleteCurrentGallery() {
 }
 
 // ===========================================================================
+// DRAG & DROP REORDERING
+// ===========================================================================
+
+let _dragSrcIdx  = null;
+let _dragSrcMode = null;
+
+function onDragStart(e, index, mode) {
+    _dragSrcIdx  = index;
+    _dragSrcMode = mode;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => e.target.classList.add('dragging'), 0);
+}
+
+function onDragEnd(e) {
+    e.target.classList.remove('dragging');
+    document.querySelectorAll('.element-item').forEach(el => el.classList.remove('drag-over'));
+    _dragSrcIdx = null;
+}
+
+function onDragOver(e, index, mode) {
+    if (_dragSrcMode !== mode || _dragSrcIdx === index) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('drag-over');
+}
+
+function onDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+}
+
+async function onDrop(e, targetIdx, mode) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    const srcIdx = _dragSrcIdx;
+    _dragSrcIdx = null;
+    if (srcIdx === null || srcIdx === targetIdx || _dragSrcMode !== mode) return;
+
+    const items = mode === 'create' ? state.elements : editState.items;
+    const [moved] = items.splice(srcIdx, 1);
+    items.splice(targetIdx, 0, moved);
+
+    // SortOrder neu vergeben
+    items.forEach((item, i) => {
+        if (mode === 'create') item.sortOrder = (i + 1) * 10;
+        else                   item.SortOrder = (i + 1) * 10;
+    });
+    if (mode === 'edit') editState.maxOrder = items.length * 10;
+
+    if (mode === 'create') renderElementList();
+    else                   renderEditorItems();
+
+    // Neue SortOrders in DynamoDB speichern (fire-and-forget)
+    items.forEach(item => {
+        const gid   = mode === 'create' ? item.galleryId : item.GalleryId;
+        const order = mode === 'create' ? item.sortOrder : item.SortOrder;
+        if (gid) apiCall('/admin/image', 'PUT', { userId: state.userId, galleryId: gid, sortOrder: order });
+    });
+}
+
+// ===========================================================================
 // THUMBNAIL-GENERIERUNG
 // Parameter: -resize 2200x (nach Breite skalieren) | -quality 78 | WebP
 // -strip ist implizit: Canvas speichert keine EXIF-Metadaten
@@ -718,7 +888,6 @@ function generateThumbnail(file, maxWidth = 2200, quality = 0.78) {
         const url = URL.createObjectURL(file);
         img.onload = () => {
             URL.revokeObjectURL(url);
-            // -resize 2200x: Breite auf maxWidth skalieren, Höhe proportional
             const scale   = Math.min(1, maxWidth / img.width);
             const canvas  = document.createElement('canvas');
             canvas.width  = Math.round(img.width  * scale);
@@ -774,10 +943,10 @@ function sanitizeFilename(name) {
 // ---------------------------------------------------------------------------
 
 function setProgress(prefix, pct, label) {
-    const fill  = document.getElementById(`${prefix}-progress-fill`);
-    const lbl   = document.getElementById(`${prefix}-progress-label`);
-    if (fill) fill.style.width   = `${Math.min(100, pct)}%`;
-    if (lbl)  lbl.textContent    = label;
+    const fill = document.getElementById(`${prefix}-progress-fill`);
+    const lbl  = document.getElementById(`${prefix}-progress-label`);
+    if (fill) fill.style.width = `${Math.min(100, pct)}%`;
+    if (lbl)  lbl.textContent  = label;
 }
 
 function showPanel(id) {
