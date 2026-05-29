@@ -281,6 +281,7 @@ img {
 .flight-card.multi-leg {
     flex-direction: column;
     aspect-ratio: unset;
+    height: auto;
     gap: 1px;
 }
 .flight-segment {
@@ -289,6 +290,7 @@ img {
     width: 100%;
     aspect-ratio: 16 / 7;
     overflow: hidden;
+    flex-shrink: 0;     /* don't let column-flex shrink the segment */
 }
 .flight-segment .flight-info {
     width: 240px;
@@ -296,8 +298,10 @@ img {
 }
 .flight-segment .globe-container {
     flex: 1;
+    min-width: 0;       /* prevent flex overflow from base width:100% */
+    width: auto;        /* override base width:100% – let flex decide */
     aspect-ratio: unset;
-    height: 100%;
+    /* height resolved by flex align-self:stretch (definite in flex spec) */
     border-radius: 0;
     box-shadow: none;
 }

@@ -101,6 +101,54 @@ function _parseTiff(dv, base) {
 }
 
 // ---------------------------------------------------------------------------
+// Legs-Input helpers (Route: FRA — MIA — YUL …)
+// ---------------------------------------------------------------------------
+
+// Called on every keystroke in a leg field.
+// When the last field reaches 3+ characters a new separator + field is appended.
+function onLegInput(event, containerId) {
+    const container = document.getElementById(containerId);
+    const fields    = Array.from(container.querySelectorAll('.leg-field'));
+    const lastField = fields[fields.length - 1];
+    if (event.target === lastField && lastField.value.trim().length >= 3) {
+        const sep       = document.createElement('span');
+        sep.className   = 'leg-sep';
+        sep.textContent = '—';
+        container.appendChild(sep);
+
+        const newField            = document.createElement('input');
+        newField.type             = 'text';
+        newField.className        = 'leg-field';
+        newField.placeholder      = '???';
+        newField.maxLength        = 4;
+        newField.setAttribute('oninput', `onLegInput(event,'${containerId}')`);
+        container.appendChild(newField);
+        newField.focus();
+    }
+}
+
+// Returns the joined label string, e.g. "FRA — MIA — YUL".
+// Empty fields are skipped.
+function buildLegsLabel(containerId) {
+    const container = document.getElementById(containerId);
+    return Array.from(container.querySelectorAll('.leg-field'))
+        .map(f => f.value.trim().toUpperCase())
+        .filter(Boolean)
+        .join(' — ');
+}
+
+// Resets a legs-input container back to its initial two-field state.
+function resetLegsInput(containerId) {
+    const c = document.getElementById(containerId);
+    c.innerHTML = `
+        <input type="text" class="leg-field" placeholder="FRA" maxlength="4"
+               oninput="onLegInput(event,'${containerId}')">
+        <span class="leg-sep">—</span>
+        <input type="text" class="leg-field" placeholder="MIA" maxlength="4"
+               oninput="onLegInput(event,'${containerId}')">`;
+}
+
+// ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
 
@@ -273,11 +321,11 @@ async function uploadPhoto() {
 // ---------------------------------------------------------------------------
 
 async function uploadFlight() {
-    const label    = document.getElementById('flight-label').value.trim();
+    const label    = buildLegsLabel('flight-legs');
     const csvFiles = document.getElementById('flight-csv').files;
     const err      = document.getElementById('flight-error');
     err.textContent = '';
-    if (!label) { err.textContent = 'Bitte eine Beschriftung eingeben.'; return; }
+    if (!label) { err.textContent = 'Bitte mindestens Start und Ziel eingeben.'; return; }
 
     const order  = state.sortCounter++;
     const result = await _doFlightUpload(label, csvFiles, state.gallerySlug, order, 'flight', 'flight-error');
@@ -286,8 +334,8 @@ async function uploadFlight() {
         renderElementList();
         setTimeout(() => {
             hidePanel('flight-panel');
-            document.getElementById('flight-label').value = '';
-            document.getElementById('flight-csv').value   = '';
+            resetLegsInput('flight-legs');
+            document.getElementById('flight-csv').value = '';
         }, 800);
     }
 }
@@ -774,11 +822,11 @@ async function uploadPhotoEdit() {
 // ---------------------------------------------------------------------------
 
 async function uploadFlightEdit() {
-    const label    = document.getElementById('edit-flight-label').value.trim();
+    const label    = buildLegsLabel('edit-flight-legs');
     const csvFiles = document.getElementById('edit-flight-csv').files;
     const err      = document.getElementById('edit-flight-error');
     err.textContent = '';
-    if (!label) { err.textContent = 'Bitte eine Beschriftung eingeben.'; return; }
+    if (!label) { err.textContent = 'Bitte mindestens Start und Ziel eingeben.'; return; }
 
     editState.maxOrder += 10;
     const sortOrder = editState.maxOrder;
@@ -794,8 +842,8 @@ async function uploadFlightEdit() {
         renderEditorItems();
         setTimeout(() => {
             hidePanel('edit-flight-panel');
-            document.getElementById('edit-flight-label').value = '';
-            document.getElementById('edit-flight-csv').value   = '';
+            resetLegsInput('edit-flight-legs');
+            document.getElementById('edit-flight-csv').value = '';
         }, 800);
     }
 }

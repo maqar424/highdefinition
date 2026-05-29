@@ -7,7 +7,18 @@ const MEDIA_BASE_URL = "https://high-definition.net/media/";
 
 async function initGallery() {
     try {
-        const response = await fetch(API_URL);
+        // Derive userId / galleryId from the URL so only this gallery's items
+        // are returned (e.g. /koljagrosse/2026Miami/index.html).
+        const parts     = window.location.pathname
+            .replace(/\/index\.html$/, '')
+            .split('/').filter(Boolean);   // ['koljagrosse', '2026Miami']
+        const userId    = parts[0] || 'koljagrosse';
+        const galleryId = parts[1] || null;
+        const query     = galleryId
+            ? `?userId=${encodeURIComponent(userId)}&galleryId=${encodeURIComponent(galleryId)}`
+            : `?userId=${encodeURIComponent(userId)}`;
+
+        const response = await fetch(API_URL + query);
         if (!response.ok) throw new Error(`API Fehler: ${response.status}`);
         const data = await response.json();
 
@@ -133,6 +144,13 @@ function parseFlightCSV(csvText) {
 // Flugstatistik
 // ---------------------------------------------------------------------------
 
+function pathLengthKm(points) {
+    let km = 0;
+    for (let i = 1; i < points.length; i++)
+        km += haversineKm(points[i-1][0], points[i-1][1], points[i][0], points[i][1]);
+    return Math.max(km, 1);   // avoid division-by-zero for degenerate paths
+}
+
 function haversineKm(lat1, lon1, lat2, lon2) {
     const R    = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -145,7 +163,15 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 
 function computeFlightStats(rows) {
     const first = rows[0], last = rows[rows.length - 1];
-    const durationSec = last.timestamp - first.timestamp;
+
+    // Use only airborne rows for duration so taxi time is excluded.
+    // 100 ft is a safe threshold — FlightRadar24 reports 0 on the ground.
+    const AIRBORNE_FT = 100;
+    const airRows  = rows.filter(r => r.altitude > AIRBORNE_FT);
+    const takeoff  = airRows.length ? airRows[0]                  : first;
+    const landing  = airRows.length ? airRows[airRows.length - 1] : last;
+
+    const durationSec = landing.timestamp - takeoff.timestamp;
     const hours = Math.floor(durationSec / 3600);
     const mins  = Math.floor((durationSec % 3600) / 60);
     const maxAlt   = Math.max(...rows.map(r => r.altitude));
@@ -171,7 +197,7 @@ function computeFlightStats(rows) {
     };
 }
 
-function renderFlightInfo(infoId, stats) {
+function renderFlightInfo(infoId, stats, routeLabel = '') {
     const el = document.getElementById(infoId);
     if (!el) return;
     const fmt = n => n.toLocaleString('de-DE');
@@ -180,6 +206,11 @@ function renderFlightInfo(infoId, stats) {
             <span class="fi-label">Flug</span>
             <span class="fi-callsign">${stats.callsign}</span>
         </div>
+        ${routeLabel ? `
+        <div class="fi-stat">
+            <span class="fi-label">Route</span>
+            <span class="fi-value">${routeLabel}</span>
+        </div>` : ''}
         <div class="fi-stat">
             <span class="fi-label">Datum</span>
             <span class="fi-value">${stats.date}</span>
@@ -213,45 +244,177 @@ function renderFlightInfo(infoId, stats) {
 // Globe-Rendering
 // ---------------------------------------------------------------------------
 
-function renderGlobe(globeId, infoId, csvUrl) {
-    const container = document.getElementById(globeId);
-    const world = Globe()(container)
-        .globeImageUrl('//unpkg.com/three-globe/example/img/earth-night.jpg')
-        .backgroundColor('rgba(0,0,0,0)');
+// Per-leg path colours (cyan → gold → lavender …)
+const PATH_COLOURS = [
+    ['rgba(255,255,255,0.4)', 'rgba(0,238,238,1)'],
+    ['rgba(255,255,255,0.4)', 'rgba(255,200,50,1)'],
+    ['rgba(255,255,255,0.4)', 'rgba(180,140,255,1)'],
+];
 
-    new ResizeObserver(() => {
-        world.width(container.offsetWidth);
-        world.height(container.offsetHeight);
-    }).observe(container);
+// renderGlobe accepts a single URL string *or* an array of URLs.
+// All tracks are drawn on the same globe; info panel shows merged stats.
+// routeLabel (optional) is shown in the info panel between callsign and date.
+function renderGlobe(globeId, infoId, csvUrlOrUrls, routeLabel = '') {
+    const container = document.getElementById(globeId);
+    if (!container) {
+        console.warn('renderGlobe: element not found:', globeId);
+        return;
+    }
+
+    const world = Globe()(container)
+        .globeImageUrl('https://unpkg.com/three-globe@2.45.2/example/img/earth-blue-marble.jpg')
+        .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png');
+
+    // Apply size after layout is computed, keep in sync via ResizeObserver.
+    const applySize = () => {
+        const w = container.offsetWidth;
+        const h = container.offsetHeight;
+        if (w > 0 && h > 0) { world.width(w).height(h); }
+    };
+    requestAnimationFrame(() => {
+        applySize();
+        new ResizeObserver(applySize).observe(container);
+    });
 
     world.pointOfView({ lat: 40, lng: -30, altitude: 2.5 }, 0);
 
-    if (!csvUrl) { renderFallbackArc(world); renderFlightInfoError(infoId); return; }
+    // Normalise to an array of non-falsy URL strings
+    const urls = Array.isArray(csvUrlOrUrls)
+        ? csvUrlOrUrls.filter(Boolean)
+        : (csvUrlOrUrls ? [csvUrlOrUrls] : []);
 
-    fetch(csvUrl)
-        .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.text(); })
-        .then(csvText => {
-            const { points, rows } = parseFlightCSV(csvText);
-            if (points.length < 2) { renderFallbackArc(world); renderFlightInfoError(infoId); return; }
-            world
-                .pathsData([{ pts: points }])
-                .pathPoints(d => d.pts)
-                .pathPointLat(p => p[0])
-                .pathPointLng(p => p[1])
-                .pathColor(() => ['rgba(255,255,255,0.4)', 'rgba(0,238,238,1)'])
-                .pathStroke(1.5)
-                .pathDashLength(0.05)
-                .pathDashGap(0.03)
-                .pathDashAnimateTime(8000);
-            const mid = points[Math.floor(points.length / 2)];
-            world.pointOfView({ lat: mid[0], lng: mid[1], altitude: 2.5 }, 2000);
-            if (rows.length >= 2) renderFlightInfo(infoId, computeFlightStats(rows));
-        })
-        .catch(err => {
-            console.warn(`Globe Fehler (${globeId}):`, err);
-            renderFallbackArc(world);
-            renderFlightInfoError(infoId);
-        });
+    if (!urls.length) { renderFallbackArc(world); renderFlightInfoError(infoId); return; }
+
+    Promise.all(
+        urls.map(url =>
+            fetch(url)
+                .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.text(); })
+        )
+    )
+    .then(csvTexts => {
+        const parsed = csvTexts
+            .map(parseFlightCSV)
+            .filter(p => p.points.length >= 2);
+
+        if (!parsed.length) { renderFallbackArc(world); renderFlightInfoError(infoId); return; }
+
+        // Draw every leg as a separate path with a distinct colour.
+        // Dash size and animation speed are normalised to physical km so all
+        // legs look the same regardless of route length.
+        const TARGET_DASH_KM = 200;   // visual dash ≈ this many km of route
+        const TARGET_GAP_KM  = 150;
+        const MS_PER_KM      = 3.0;   // animation cycle time proportional to route length
+
+        const pathData = parsed.map((p, i) => ({
+            pts:     p.points,
+            i,
+            totalKm: pathLengthKm(p.points)
+        }));
+
+        world
+            .pathsData(pathData)
+            .pathPoints(d => d.pts)
+            .pathPointLat(p => p[0])
+            .pathPointLng(p => p[1])
+            .pathColor(d => PATH_COLOURS[d.i % PATH_COLOURS.length])
+            .pathStroke(1.5)
+            .pathDashLength(d => Math.min(0.15, Math.max(0.02, TARGET_DASH_KM / d.totalKm)))
+            .pathDashGap(d     => Math.min(0.10, Math.max(0.015, TARGET_GAP_KM  / d.totalKm)))
+            .pathDashAnimateTime(d => Math.round(d.totalKm * MS_PER_KM));
+
+        // Centre the view on the midpoint of all combined points
+        const allPts = parsed.flatMap(p => p.points);
+        const mid    = allPts[Math.floor(allPts.length / 2)];
+        world.pointOfView({ lat: mid[0], lng: mid[1], altitude: 2.5 }, 2000);
+
+        // Build flight-info panel
+        const statsList = parsed
+            .filter(p => p.rows.length >= 2)
+            .map(p => computeFlightStats(p.rows));
+
+        if (statsList.length === 1) {
+            renderFlightInfo(infoId, statsList[0], routeLabel);
+        } else if (statsList.length > 1) {
+            renderMultiFlightInfo(infoId, statsList, routeLabel);
+        }
+    })
+    .catch(err => {
+        console.warn(`Globe Fehler (${globeId}):`, err);
+        renderFallbackArc(world);
+        renderFlightInfoError(infoId);
+    });
+}
+
+// Merged info panel for multi-leg flights.
+// Callsign, date, duration, altitude and speed are shown per leg,
+// deduplicated when all legs share the same value.
+// Distance is always shown as the total for the whole trip.
+function renderMultiFlightInfo(infoId, statsList, routeLabel = '') {
+    const el = document.getElementById(infoId);
+    if (!el) return;
+    const fmt  = n  => n.toLocaleString('de-DE');
+
+    // Helper: map each leg, deduplicate if all equal, otherwise join with " / "
+    const perLeg = fn => {
+        const vals = statsList.map(fn);
+        const unique = [...new Set(vals)];
+        return unique.join(' / ');
+    };
+
+    // Per-leg duration (shown separately when legs differ)
+    const durationStr = perLeg(s =>
+        `${s.hours}h ${String(s.mins).padStart(2,'0')}min`
+    );
+
+    // Total distance (sum – most useful as a single trip number)
+    const totalKm = statsList.reduce((a, s) => a + s.totalKm, 0);
+    const totalNm = Math.round(totalKm / 1.852);
+
+    // Per-leg max altitude
+    const altFtStr = perLeg(s => `${fmt(s.maxAltFt)} ft`);
+    const altKmStr = perLeg(s => s.maxAltKm);          // already a string "xx.x"
+
+    // Per-leg max speed
+    const spdKtsStr = perLeg(s => `${s.maxSpeedKts} kts`);
+    const spdKmhStr = perLeg(s => fmt(s.maxSpeedKmh));
+
+    el.innerHTML = `
+        <div class="fi-stat">
+            <span class="fi-label">Flug</span>
+            <span class="fi-callsign">${perLeg(s => s.callsign)}</span>
+        </div>
+        ${routeLabel ? `
+        <div class="fi-stat">
+            <span class="fi-label">Route</span>
+            <span class="fi-value">${routeLabel}</span>
+        </div>` : ''}
+        <div class="fi-stat">
+            <span class="fi-label">Datum</span>
+            <span class="fi-value">${perLeg(s => s.date)}</span>
+        </div>
+        <div class="fi-stat">
+            <span class="fi-label">Flugzeit</span>
+            <span class="fi-value">${durationStr}</span>
+        </div>
+        <div class="fi-divider"></div>
+        <div class="fi-stat">
+            <span class="fi-label">Strecke</span>
+            <span class="fi-value">${fmt(Math.round(totalKm))} km
+                <span class="fi-sub">(${fmt(totalNm)} NM)</span>
+            </span>
+        </div>
+        <div class="fi-stat">
+            <span class="fi-label">Max. Höhe</span>
+            <span class="fi-value">${altFtStr}
+                <span class="fi-sub">(${altKmStr} km)</span>
+            </span>
+        </div>
+        <div class="fi-stat">
+            <span class="fi-label">Max. Speed</span>
+            <span class="fi-value">${spdKtsStr}
+                <span class="fi-sub">(${spdKmhStr} km/h)</span>
+            </span>
+        </div>`;
 }
 
 function renderFallbackArc(world) {
@@ -326,19 +489,20 @@ async function initGalleryDynamic(userId, galleryId) {
             if (item.GalleryId.startsWith('IMAGE#')) {
                 main.appendChild(_buildImageEl(item));
             } else if (item.GalleryId.startsWith('FLIGHT#')) {
-                // Unterstützt CsvUrls (Array, mehrere Legs) und CsvUrl (einzeln, backward compat)
+                // CsvUrls = array of legs (new); CsvUrl = single leg (backward compat)
                 const csvUrls = Array.isArray(item.CsvUrls) && item.CsvUrls.length
                     ? item.CsvUrls
                     : (item.CsvUrl ? [item.CsvUrl] : []);
-                const gBase = `flightGlobe${globeIndex}`;
-                const iBase = `flightInfo${globeIndex}`;
-                main.appendChild(_buildFlightEl(item, gBase, iBase, csvUrls));
-                const legs = csvUrls.length ? csvUrls : [null];
-                legs.forEach((url, li) => {
-                    const sfx     = legs.length > 1 ? `_${li}` : '';
-                    const fullUrl = url ? `${MEDIA_BASE_URL}${url}` : null;
-                    renderGlobe(`${gBase}${sfx}`, `${iBase}${sfx}`, fullUrl);
-                });
+                const gBase    = `flightGlobe${globeIndex}`;
+                const iBase    = `flightInfo${globeIndex}`;
+                main.appendChild(_buildFlightEl(item, gBase, iBase));
+                // All legs on one globe — pass the full URL array
+                const fullUrls = csvUrls.map(u => `${MEDIA_BASE_URL}${u}`);
+                try {
+                    renderGlobe(gBase, iBase, fullUrls.length ? fullUrls : null, item.Label || '');
+                } catch (e) {
+                    console.warn(`Globe init failed (${gBase}):`, e);
+                }
                 globeIndex++;
             }
         }
@@ -372,39 +536,21 @@ function _buildImageEl(img) {
     return div;
 }
 
-function _buildFlightEl(flight, baseGlobeId, baseInfoId, csvUrls = []) {
+function _buildFlightEl(flight, baseGlobeId, baseInfoId) {
     const label   = flight.Label || '';
     const div     = document.createElement('div');
     div.className = 'image-container';
-    const legs    = csvUrls.length > 1 ? csvUrls.map((_, i) => i) : [0];
-    const multi   = legs.length > 1;
-
-    const segmentsHtml = legs.map(i => {
-        const sfx = multi ? `_${i}` : '';
-        return multi
-            ? `<div class="flight-segment">
-                   <div class="flight-info" id="${baseInfoId}${sfx}">
-                       <div class="fi-loading">Lade Flugdaten …</div>
-                   </div>
-                   <div class="globe-container">
-                       <div id="${baseGlobeId}${sfx}" class="flight-div"></div>
-                   </div>
-               </div>`
-            : `<div class="flight-info" id="${baseInfoId}">
-                   <div class="fi-loading">Lade Flugdaten …</div>
-               </div>
-               <div class="globe-container">
-                   <div id="${baseGlobeId}" class="flight-div"></div>
-               </div>`;
-    }).join('');
-
     div.innerHTML = `
-        <div class="flight-card${multi ? ' multi-leg' : ''}">
-            ${segmentsHtml}
+        <div class="flight-card">
+            <div class="flight-info" id="${baseInfoId}">
+                <div class="fi-loading">Lade Flugdaten …</div>
+            </div>
+            <div class="globe-container">
+                <div id="${baseGlobeId}" class="flight-div"></div>
+            </div>
         </div>
         <div class="info-row">
             <div class="metadata">${label}</div>
-            <div class="download-btn" style="cursor:default; background:#333; color:white;">3D Log</div>
         </div>`;
     return div;
 }

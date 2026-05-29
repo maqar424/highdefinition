@@ -101,8 +101,14 @@
         <div class="add-panel" id="flight-panel">
             <h3>Flugvisualisierung hinzufügen</h3>
             <div class="field">
-                <label for="flight-label">Beschriftung *</label>
-                <input type="text" id="flight-label" placeholder="z.B. FRA — MIA">
+                <label>Route *</label>
+                <div class="legs-input" id="flight-legs">
+                    <input type="text" class="leg-field" placeholder="FRA" maxlength="4"
+                           oninput="onLegInput(event,'flight-legs')">
+                    <span class="leg-sep">—</span>
+                    <input type="text" class="leg-field" placeholder="MIA" maxlength="4"
+                           oninput="onLegInput(event,'flight-legs')">
+                </div>
             </div>
             <div class="field">
                 <label>FlightRadar24 CSV-Dateien (optional, mehrere Legs möglich)</label>
@@ -220,8 +226,14 @@
         <div class="add-panel" id="edit-flight-panel">
             <h3>Flugvisualisierung hinzufügen</h3>
             <div class="field">
-                <label for="edit-flight-label">Beschriftung *</label>
-                <input type="text" id="edit-flight-label" placeholder="z.B. FRA — MIA">
+                <label>Route *</label>
+                <div class="legs-input" id="edit-flight-legs">
+                    <input type="text" class="leg-field" placeholder="FRA" maxlength="4"
+                           oninput="onLegInput(event,'edit-flight-legs')">
+                    <span class="leg-sep">—</span>
+                    <input type="text" class="leg-field" placeholder="MIA" maxlength="4"
+                           oninput="onLegInput(event,'edit-flight-legs')">
+                </div>
             </div>
             <div class="field">
                 <label>FlightRadar24 CSV-Datei (optional)</label>
