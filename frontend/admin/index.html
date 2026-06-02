@@ -53,6 +53,22 @@
             <label for="gallery-desc">Beschreibung (optional)</label>
             <textarea id="gallery-desc" rows="3" placeholder="Kurze Beschreibung der Galerie …"></textarea>
         </div>
+        <div class="field">
+            <label>Zeitraum</label>
+            <div class="date-range">
+                <input type="date" id="create-start-date">
+                <span class="date-sep">—</span>
+                <input type="date" id="create-end-date">
+            </div>
+        </div>
+        <div class="field">
+            <label>Tags</label>
+            <div class="tag-chips" id="create-tag-chips"></div>
+            <div class="tag-suggestions" id="create-tag-suggestions"></div>
+            <input type="text" class="tag-add-input" id="create-tag-input"
+                   placeholder="Eigenen Tag eingeben + Enter"
+                   onkeydown="onTagInputKey(event,'create')">
+        </div>
         <div class="btn-row">
             <button class="btn btn-primary" id="create-btn" onclick="createGallery()">Galerie erstellen</button>
         </div>
@@ -108,6 +124,7 @@
                     <span class="leg-sep">—</span>
                     <input type="text" class="leg-field" placeholder="MIA" maxlength="4"
                            oninput="onLegInput(event,'flight-legs')">
+                    <button type="button" class="leg-add-btn" onclick="addLeg('flight-legs')">+</button>
                 </div>
             </div>
             <div class="field">
@@ -183,6 +200,22 @@
                 <label for="edit-desc">Beschreibung</label>
                 <textarea id="edit-desc" rows="2" placeholder="Kurze Beschreibung …"></textarea>
             </div>
+            <div class="field">
+                <label>Zeitraum</label>
+                <div class="date-range">
+                    <input type="date" id="edit-start-date">
+                    <span class="date-sep">—</span>
+                    <input type="date" id="edit-end-date">
+                </div>
+            </div>
+            <div class="field">
+                <label>Tags</label>
+                <div class="tag-chips" id="edit-tag-chips"></div>
+                <div class="tag-suggestions" id="edit-tag-suggestions"></div>
+                <input type="text" class="tag-add-input" id="edit-tag-input"
+                       placeholder="Eigenen Tag eingeben + Enter"
+                       onkeydown="onTagInputKey(event,'edit')">
+            </div>
             <div class="btn-row" style="margin-top:16px">
                 <button class="btn btn-primary btn-sm" id="edit-save-btn" onclick="saveEditorMeta()">Speichern</button>
                 <span class="meta-msg" id="edit-meta-msg"></span>
@@ -233,6 +266,7 @@
                     <span class="leg-sep">—</span>
                     <input type="text" class="leg-field" placeholder="MIA" maxlength="4"
                            oninput="onLegInput(event,'edit-flight-legs')">
+                    <button type="button" class="leg-add-btn" onclick="addLeg('edit-flight-legs')">+</button>
                 </div>
             </div>
             <div class="field">

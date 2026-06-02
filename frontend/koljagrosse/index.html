@@ -18,8 +18,10 @@
         <div class="description">Kuratierte Momente aus aller Welt.</div>
     </header>
 
-    <main class="gallery-tile-grid" id="tile-grid">
-        <!-- Kacheln werden per JS aus DynamoDB geladen -->
+    <div class="tag-filter" id="tag-filter"></div>
+
+    <main id="gallery-sections">
+        <!-- Jahres-Abschnitte werden per JS aus DynamoDB geladen -->
     </main>
 
     <script>
@@ -27,42 +29,121 @@
         const MEDIA_BASE_URL = "https://high-definition.net/media/";
         const USER_ID        = "koljagrosse";
 
-        async function loadGalleries() {
-            const grid = document.getElementById('tile-grid');
-            try {
-                const res  = await fetch(`${API_URL}?userId=${USER_ID}&galleriesOnly=true`);
-                if (!res.ok) throw new Error(`API ${res.status}`);
-                const galleries = await res.json();
+        let allGalleries = [];
+        const activeTags = new Set();
 
-                if (galleries.length === 0) {
-                    grid.innerHTML = '<p style="color:#999;font-size:0.75rem;letter-spacing:1px;text-transform:uppercase;">Noch keine Galerien vorhanden.</p>';
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function fmtDate(iso) {
+            if (!iso) return '';
+            const [y, m, d] = iso.split('-');
+            return `${d}.${m}.${y}`;
+        }
+
+        function fmtSpan(s, e) {
+            if (s && e && s !== e) return `${fmtDate(s)} – ${fmtDate(e)}`;
+            return fmtDate(s || e);
+        }
+
+        function yearOf(g) {
+            const d = g.StartDate || g.EndDate || '';
+            return d ? d.slice(0, 4) : null;
+        }
+
+        async function loadGalleries() {
+            const main = document.getElementById('gallery-sections');
+            try {
+                const res = await fetch(`${API_URL}?userId=${USER_ID}&galleriesOnly=true`);
+                if (!res.ok) throw new Error(`API ${res.status}`);
+                allGalleries = await res.json();
+
+                if (allGalleries.length === 0) {
+                    main.innerHTML = '<p class="empty-note">Noch keine Galerien vorhanden.</p>';
                     return;
                 }
-
-                grid.innerHTML = galleries.map(g => {
-                    const slug  = g.Slug || g.GalleryId.replace('GALLERY#', '');
-                    const title = g.Title || slug;
-                    const thumb = g.ThumbnailUrl ? `${MEDIA_BASE_URL}${g.ThumbnailUrl}` : '';
-                    const href  = `/${USER_ID}/${slug}/index.html`;
-
-                    if (thumb) {
-                        return `
-                            <a href="${href}" class="gallery-tile">
-                                <img src="${thumb}" class="profile-thumbnail" alt="${title}">
-                                <h2 class="gallery-title">${title}</h2>
-                            </a>`;
-                    } else {
-                        return `
-                            <a href="${href}" class="gallery-tile gallery-tile--placeholder">
-                                <h2 class="gallery-title">${title}</h2>
-                            </a>`;
-                    }
-                }).join('');
-
+                renderFilterBar();
+                renderGalleries();
             } catch (err) {
                 console.error('Fehler beim Laden der Galerien:', err);
-                grid.innerHTML = '<p style="color:#999;font-size:0.75rem;letter-spacing:1px;text-transform:uppercase;">Fehler beim Laden.</p>';
+                main.innerHTML = '<p class="empty-note">Fehler beim Laden.</p>';
             }
+        }
+
+        function renderFilterBar() {
+            const bar = document.getElementById('tag-filter');
+            const tags = [...new Set(allGalleries.flatMap(g => Array.isArray(g.Tags) ? g.Tags : []))]
+                .sort((a, b) => a.localeCompare(b, 'de'));
+            if (tags.length === 0) { bar.innerHTML = ''; return; }
+
+            bar.innerHTML = tags.map(t =>
+                `<button class="filter-tag${activeTags.has(t) ? ' active' : ''}" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`
+            ).join('');
+
+            bar.querySelectorAll('.filter-tag').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const t = btn.dataset.tag;
+                    if (activeTags.has(t)) activeTags.delete(t);
+                    else                   activeTags.add(t);
+                    btn.classList.toggle('active');
+                    renderGalleries();
+                });
+            });
+        }
+
+        function tileHtml(g) {
+            const slug  = g.Slug || g.GalleryId.replace('GALLERY#', '');
+            const title = g.Title || slug;
+            const thumb = g.ThumbnailUrl ? `${MEDIA_BASE_URL}${g.ThumbnailUrl}` : '';
+            const href  = `/${USER_ID}/${slug}/index.html`;
+            const span  = fmtSpan(g.StartDate, g.EndDate);
+            const dateEl = span ? `<div class="gallery-date">${span}</div>` : '';
+            const cls   = thumb ? 'gallery-tile' : 'gallery-tile gallery-tile--placeholder';
+            const imgEl = thumb ? `<img src="${thumb}" class="profile-thumbnail" alt="${escapeHtml(title)}">` : '';
+            return `
+                <a href="${href}" class="${cls}">
+                    ${imgEl}
+                    <h2 class="gallery-title">${escapeHtml(title)}</h2>
+                    ${dateEl}
+                </a>`;
+        }
+
+        function renderGalleries() {
+            const main = document.getElementById('gallery-sections');
+
+            // Filter (ODER: Galerie erscheint, wenn sie mind. einen aktiven Tag hat)
+            let list = allGalleries;
+            if (activeTags.size) {
+                list = list.filter(g => (Array.isArray(g.Tags) ? g.Tags : []).some(t => activeTags.has(t)));
+            }
+
+            // Nach Datum absteigend sortieren (neueste zuerst)
+            list = [...list].sort((a, b) => (b.StartDate || '').localeCompare(a.StartDate || ''));
+
+            // Nach Jahr gruppieren
+            const byYear = {};
+            const undated = [];
+            for (const g of list) {
+                const y = yearOf(g);
+                if (y) (byYear[y] ||= []).push(g);
+                else   undated.push(g);
+            }
+
+            const years = Object.keys(byYear).sort((a, b) => b.localeCompare(a));
+            let html = '';
+            for (const y of years) {
+                html += `<h2 class="year-heading">${y}</h2>
+                         <div class="gallery-tile-grid">${byYear[y].map(tileHtml).join('')}</div>`;
+            }
+            if (undated.length) {
+                html += `<h2 class="year-heading">Ohne Datum</h2>
+                         <div class="gallery-tile-grid">${undated.map(tileHtml).join('')}</div>`;
+            }
+            if (!html) html = '<p class="empty-note">Keine Galerien für diese Filter.</p>';
+            main.innerHTML = html;
         }
 
         loadGalleries();

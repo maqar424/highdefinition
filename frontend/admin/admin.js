@@ -17,6 +17,7 @@ let state = {
     elements:           [],      // { type, galleryId, label, thumbUrl, fullUrl, csvUrls, sortOrder }
     thumbnailGalleryId: null,
     sortCounter:        1,
+    createTags:         [],      // Tags für neue Galerie
 };
 
 let editState = {
@@ -25,7 +26,11 @@ let editState = {
     desc:     '',
     items:    [],   // DynamoDB IMAGE# / FLIGHT# items
     maxOrder: 0,
+    tags:     [],   // Tags der bearbeiteten Galerie
 };
+
+// Vorgeschlagene Tags (klickbar) – eigene können frei hinzugefügt werden
+const TAG_SUGGESTIONS = ['Formel 1', 'Privat Jet', 'USA', 'Europa', 'Motorsport', 'Natur', 'Städtetrip'];
 
 // ---------------------------------------------------------------------------
 // Utility helpers
@@ -104,26 +109,42 @@ function _parseTiff(dv, base) {
 // Legs-Input helpers (Route: FRA — MIA — YUL …)
 // ---------------------------------------------------------------------------
 
-// Called on every keystroke in a leg field.
-// When the last field reaches 3+ characters a new separator + field is appended.
-function onLegInput(event, containerId) {
-    const container = document.getElementById(containerId);
-    const fields    = Array.from(container.querySelectorAll('.leg-field'));
-    const lastField = fields[fields.length - 1];
-    if (event.target === lastField && lastField.value.trim().length >= 3) {
-        const sep       = document.createElement('span');
-        sep.className   = 'leg-sep';
-        sep.textContent = '—';
-        container.appendChild(sep);
+// Appends a new separator + field + "+" button to a legs-input container.
+// Called by the "+" button and automatically when the last field hits 3 chars.
+function addLeg(containerId) {
+    const c = document.getElementById(containerId);
+    c.querySelector('.leg-add-btn')?.remove();   // remove old "+" first
 
-        const newField            = document.createElement('input');
-        newField.type             = 'text';
-        newField.className        = 'leg-field';
-        newField.placeholder      = '???';
-        newField.maxLength        = 4;
-        newField.setAttribute('oninput', `onLegInput(event,'${containerId}')`);
-        container.appendChild(newField);
-        newField.focus();
+    const sep       = document.createElement('span');
+    sep.className   = 'leg-sep';
+    sep.textContent = '—';
+    c.appendChild(sep);
+
+    const field       = document.createElement('input');
+    field.type        = 'text';
+    field.className   = 'leg-field';
+    field.placeholder = '???';
+    field.maxLength   = 4;
+    field.setAttribute('oninput', `onLegInput(event,'${containerId}')`);
+    c.appendChild(field);
+
+    const btn     = document.createElement('button');
+    btn.type      = 'button';
+    btn.className = 'leg-add-btn';
+    btn.textContent = '+';
+    btn.setAttribute('onclick', `addLeg('${containerId}')`);
+    c.appendChild(btn);
+
+    field.focus();
+}
+
+// Auto-expands when the last field reaches 3 characters (typical IATA length).
+function onLegInput(event, containerId) {
+    const c      = document.getElementById(containerId);
+    const fields = Array.from(c.querySelectorAll('.leg-field'));
+    const last   = fields[fields.length - 1];
+    if (event.target === last && last.value.trim().length >= 3) {
+        addLeg(containerId);
     }
 }
 
@@ -145,7 +166,58 @@ function resetLegsInput(containerId) {
                oninput="onLegInput(event,'${containerId}')">
         <span class="leg-sep">—</span>
         <input type="text" class="leg-field" placeholder="MIA" maxlength="4"
-               oninput="onLegInput(event,'${containerId}')">`;
+               oninput="onLegInput(event,'${containerId}')">
+        <button type="button" class="leg-add-btn" onclick="addLeg('${containerId}')">+</button>`;
+}
+
+// ---------------------------------------------------------------------------
+// Tag-Manager (Create + Edit)
+// prefix = 'create' | 'edit'
+// ---------------------------------------------------------------------------
+
+function _tagsArr(prefix) {
+    return prefix === 'create' ? state.createTags : editState.tags;
+}
+
+function renderTags(prefix) {
+    const arr     = _tagsArr(prefix);
+    const chipsEl = document.getElementById(`${prefix}-tag-chips`);
+    const sugEl   = document.getElementById(`${prefix}-tag-suggestions`);
+    if (!chipsEl || !sugEl) return;
+
+    chipsEl.innerHTML = arr.map((t, i) =>
+        `<span class="tag-chip selected">${escapeHtml(t)}<button type="button" class="tag-x" onclick="removeTag('${prefix}',${i})">×</button></span>`
+    ).join('');
+
+    sugEl.innerHTML = TAG_SUGGESTIONS
+        .filter(t => !arr.some(a => a.toLowerCase() === t.toLowerCase()))
+        .map(t => `<button type="button" class="tag-chip suggest" data-tag="${escapeHtml(t)}" onclick="addTagFromBtn('${prefix}',this)">+ ${escapeHtml(t)}</button>`)
+        .join('');
+}
+
+function addTag(prefix, tag) {
+    tag = (tag || '').trim();
+    if (!tag) return;
+    const arr = _tagsArr(prefix);
+    if (!arr.some(t => t.toLowerCase() === tag.toLowerCase())) arr.push(tag);
+    renderTags(prefix);
+}
+
+function addTagFromBtn(prefix, btn) {
+    addTag(prefix, btn.dataset.tag);
+}
+
+function removeTag(prefix, index) {
+    _tagsArr(prefix).splice(index, 1);
+    renderTags(prefix);
+}
+
+function onTagInputKey(event, prefix) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        addTag(prefix, event.target.value);
+        event.target.value = '';
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +277,7 @@ function switchTab(tab) {
         hide('tab-manage');
         if (!state.gallerySlug) {
             show('step-create'); hide('step-elements'); hide('step-done');
+            renderTags('create');
         }
     } else {
         hide('tab-create');
@@ -234,16 +307,21 @@ function updateSlugPreview() {
 // ---------------------------------------------------------------------------
 
 async function createGallery() {
-    const title = document.getElementById('gallery-title').value.trim();
-    const desc  = document.getElementById('gallery-desc').value.trim();
-    const err   = document.getElementById('create-error');
-    const btn   = document.getElementById('create-btn');
+    const title     = document.getElementById('gallery-title').value.trim();
+    const desc      = document.getElementById('gallery-desc').value.trim();
+    const startDate = document.getElementById('create-start-date').value;
+    const endDate   = document.getElementById('create-end-date').value;
+    const err       = document.getElementById('create-error');
+    const btn       = document.getElementById('create-btn');
     err.textContent = '';
     if (!title) { err.textContent = 'Bitte einen Namen eingeben.'; return; }
 
     btn.disabled = true; btn.textContent = 'Erstelle …';
     try {
-        const res  = await apiCall('/admin/gallery', 'POST', { userId: state.userId, title, description: desc });
+        const res  = await apiCall('/admin/gallery', 'POST', {
+            userId: state.userId, title, description: desc,
+            tags: state.createTags, startDate, endDate,
+        });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Fehler');
         state.gallerySlug  = data.slug;
@@ -539,9 +617,14 @@ function finishGallery() {
 function resetAdmin() {
     state.gallerySlug = null; state.galleryTitle = null;
     state.elements = []; state.thumbnailGalleryId = null; state.sortCounter = 1;
+    state.createTags = [];
     document.getElementById('gallery-title').value = '';
     document.getElementById('gallery-desc').value  = '';
     document.getElementById('slug-preview').textContent = '';
+    document.getElementById('create-start-date').value = '';
+    document.getElementById('create-end-date').value   = '';
+    document.getElementById('create-tag-input').value  = '';
+    renderTags('create');
     hide('step-done'); hide('step-elements'); show('step-create');
     renderElementList();
 }
@@ -614,8 +697,13 @@ async function openGalleryEditor(slug) {
         const meta  = data.find(i => i.GalleryId?.startsWith('GALLERY#'));
         editState.title = meta?.Title || '';
         editState.desc  = meta?.Description || '';
-        document.getElementById('edit-title').value = editState.title;
-        document.getElementById('edit-desc').value  = editState.desc;
+        editState.tags  = Array.isArray(meta?.Tags) ? [...meta.Tags] : [];
+        document.getElementById('edit-title').value      = editState.title;
+        document.getElementById('edit-desc').value       = editState.desc;
+        document.getElementById('edit-start-date').value = meta?.StartDate || '';
+        document.getElementById('edit-end-date').value   = meta?.EndDate   || '';
+        document.getElementById('edit-tag-input').value  = '';
+        renderTags('edit');
 
         const rawItems = data
             .filter(i => i.GalleryId?.startsWith('IMAGE#') || i.GalleryId?.startsWith('FLIGHT#'))
@@ -677,15 +765,18 @@ function renderEditorItems() {
 // ---------------------------------------------------------------------------
 
 async function saveEditorMeta() {
-    const title = document.getElementById('edit-title').value.trim();
-    const desc  = document.getElementById('edit-desc').value.trim();
-    const msg   = document.getElementById('edit-meta-msg');
-    const btn   = document.getElementById('edit-save-btn');
+    const title     = document.getElementById('edit-title').value.trim();
+    const desc      = document.getElementById('edit-desc').value.trim();
+    const startDate = document.getElementById('edit-start-date').value;
+    const endDate   = document.getElementById('edit-end-date').value;
+    const msg       = document.getElementById('edit-meta-msg');
+    const btn       = document.getElementById('edit-save-btn');
     msg.textContent = ''; msg.style.color = '';
     btn.disabled = true; btn.textContent = '…';
     try {
         const res = await apiCall('/admin/gallery/' + editState.slug, 'PUT', {
             userId: state.userId, title, description: desc,
+            tags: editState.tags, startDate, endDate,
         });
         if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
         editState.title = title; editState.desc = desc;

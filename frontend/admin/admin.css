@@ -534,6 +534,115 @@ input:focus, textarea:focus {
     user-select: none;
 }
 
+.leg-add-btn {
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.85rem;
+    width: 26px;
+    height: 26px;
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: color 0.2s, border-color 0.2s;
+    font-family: inherit;
+}
+.leg-add-btn:hover {
+    color: rgba(255, 255, 255, 0.8);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* ---------- Date range ---------- */
+input[type="date"] {
+    background: #0d0d0d;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 3px;
+    color: rgba(255,255,255,0.85);
+    font-size: 0.82rem;
+    padding: 10px 12px;
+    outline: none;
+    font-family: inherit;
+    transition: border-color 0.2s;
+    color-scheme: dark;
+}
+input[type="date"]:focus { border-color: rgba(255,255,255,0.3); }
+
+.date-range {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.date-range input[type="date"] { flex: 1; min-width: 0; }
+.date-sep {
+    color: rgba(255,255,255,0.3);
+    flex-shrink: 0;
+    user-select: none;
+}
+
+/* ---------- Tags ---------- */
+.tag-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.tag-chips:empty { margin-bottom: 0; }
+
+.tag-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.tag-suggestions:empty { margin-bottom: 0; }
+
+.tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.6rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 6px 12px;
+    border-radius: 100px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s;
+    border: 1px solid rgba(255,255,255,0.12);
+}
+.tag-chip.selected {
+    background: rgba(255,255,255,0.92);
+    color: #000;
+    border-color: rgba(255,255,255,0.92);
+    cursor: default;
+}
+.tag-chip.suggest {
+    background: none;
+    color: rgba(255,255,255,0.45);
+}
+.tag-chip.suggest:hover {
+    color: rgba(255,255,255,0.85);
+    border-color: rgba(255,255,255,0.35);
+}
+.tag-x {
+    background: none;
+    border: none;
+    color: rgba(0,0,0,0.5);
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0;
+    font-family: inherit;
+}
+.tag-x:hover { color: #000; }
+
+.tag-add-input {
+    font-size: 0.78rem !important;
+    padding: 9px 12px !important;
+}
+
 /* ---------- Inline caption input ---------- */
 .caption-input {
     width: 100%;

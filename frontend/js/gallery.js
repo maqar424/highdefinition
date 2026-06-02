@@ -66,10 +66,12 @@ async function initGallery() {
         alignCaptionsToImages();
         window.addEventListener('resize', alignCaptionsToImages);
 
-        const csv1 = meta?.CsvFiles?.[0] ? `${MEDIA_BASE_URL}${meta.CsvFiles[0].replace(/^\//, '')}` : null;
-        const csv2 = meta?.CsvFiles?.[1] ? `${MEDIA_BASE_URL}${meta.CsvFiles[1].replace(/^\//, '')}` : null;
-        renderGlobe('flightGlobe01', 'flightInfo01', csv1);
-        renderGlobe('flightGlobe02', 'flightInfo02', csv2);
+        const csv1   = meta?.CsvFiles?.[0] ? `${MEDIA_BASE_URL}${meta.CsvFiles[0].replace(/^\//, '')}` : null;
+        const csv2   = meta?.CsvFiles?.[1] ? `${MEDIA_BASE_URL}${meta.CsvFiles[1].replace(/^\//, '')}` : null;
+        const route1 = document.getElementById('globe-wrapper-01')?.dataset?.route || '';
+        const route2 = document.getElementById('globe-wrapper-02')?.dataset?.route || '';
+        renderGlobe('flightGlobe01', 'flightInfo01', csv1, route1);
+        renderGlobe('flightGlobe02', 'flightInfo02', csv2, route2);
 
     } catch (err) {
         console.error("Fehler beim Laden der Galerie:", err);
@@ -548,9 +550,6 @@ function _buildFlightEl(flight, baseGlobeId, baseInfoId) {
             <div class="globe-container">
                 <div id="${baseGlobeId}" class="flight-div"></div>
             </div>
-        </div>
-        <div class="info-row">
-            <div class="metadata">${label}</div>
         </div>`;
     return div;
 }
